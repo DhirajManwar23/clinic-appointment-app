@@ -1,0 +1,730 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OPD Sahayak — Doctor Dashboard</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@500;600;700;800&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --ink:#123832; --muted:#6B8079; --line:#E4EDE9;
+    --bg:#F3F7F5; --paper:#FFFFFF;
+    --accent:#E8934A; --accent-dark:#C9701F; --accent-soft:#FCE3C7;
+    --ok:#2C8C63; --ok-soft:#E3F5EC;
+    --danger:#D2483A; --danger-soft:#FBEAE7;
+    --pend-soft:#FFF3E1; --pend:#B9770E;
+  }
+  *{ box-sizing:border-box; }
+  body{ margin:0; font-family:'Inter',sans-serif; background:var(--bg); color:var(--ink); }
+
+  /* ---------- Login ---------- */
+  .login-wrap{ min-height:100vh; display:flex; align-items:center; justify-content:center; padding:20px;
+    background: radial-gradient(1200px 600px at 15% -10%, rgba(232,147,74,0.15), transparent 60%), linear-gradient(160deg, #0E2B26, #1B4B43); }
+  .login-card{ background:#fff; border-radius:20px; padding:34px 30px; width:100%; max-width:360px; box-shadow:0 20px 50px rgba(0,0,0,0.25); }
+  .login-card h1{ font-family:'Poppins',sans-serif; font-size:19px; margin:0 0 4px; }
+  .login-card p{ color:var(--muted); font-size:13px; margin:0 0 22px; }
+  .field{ margin-bottom:14px; }
+  .field label{ display:block; font-size:12.5px; font-weight:600; margin-bottom:6px; color:var(--ink); }
+  .field input{ width:100%; padding:10px 12px; border:1.5px solid var(--line); border-radius:10px; font-size:14px; font-family:inherit; outline:none; }
+  .field input:focus{ border-color:var(--accent); }
+  .login-btn{ width:100%; padding:11px; border:none; border-radius:10px; background:var(--accent); color:#fff; font-weight:700; font-size:14px; cursor:pointer; margin-top:6px; }
+  .login-btn:hover{ background:var(--accent-dark); }
+  .login-err{ background:var(--danger-soft); color:var(--danger); font-size:12.5px; padding:9px 12px; border-radius:8px; margin-bottom:12px; display:none; }
+
+  /* ---------- Dashboard ---------- */
+  .app{ display:none; }
+  .topbar{ background:linear-gradient(135deg, var(--ink), #1E5349); color:#fff; padding:16px 22px; display:flex; align-items:center; justify-content:space-between; }
+  .topbar .brand{ display:flex; align-items:center; gap:10px; font-family:'Poppins',sans-serif; font-weight:700; font-size:16px; }
+  .topbar .brand svg{ width:22px; height:22px; }
+  .topbar .doc{ font-size:12px; color:#BFDCD1; margin-top:2px; }
+  .logout-btn{ background:rgba(255,255,255,0.12); border:1px solid rgba(255,255,255,0.25); color:#fff; font-size:12px; font-weight:600; padding:8px 14px; border-radius:20px; cursor:pointer; }
+  .logout-btn:hover{ background:rgba(255,255,255,0.22); }
+
+  .container{ max-width:1080px; margin:0 auto; padding:22px 18px 60px; }
+
+  .stats{ display:grid; grid-template-columns:repeat(auto-fit, minmax(150px,1fr)); gap:12px; margin-bottom:22px; }
+  .stat-card{ background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:16px 18px; }
+  .stat-card .num{ font-family:'JetBrains Mono',monospace; font-size:24px; font-weight:700; color:var(--accent-dark); }
+  .stat-card .lbl{ font-size:12px; color:var(--muted); margin-top:2px; font-weight:600; }
+
+  .tabs{ display:flex; gap:6px; margin-bottom:16px; border-bottom:1px solid var(--line); }
+  .tab{ padding:10px 16px; font-size:13.5px; font-weight:600; color:var(--muted); background:none; border:none; cursor:pointer; border-bottom:2px solid transparent; }
+  .tab.active{ color:var(--accent-dark); border-bottom-color:var(--accent); }
+
+  .toolbar{ display:flex; gap:8px; align-items:center; margin-bottom:14px; flex-wrap:wrap; }
+  .toolbar select{ padding:8px 10px; border:1.5px solid var(--line); border-radius:8px; font-size:13px; font-family:inherit; background:#fff; }
+  .toolbar .refresh{ margin-left:auto; background:none; border:1.5px solid var(--line); border-radius:8px; padding:8px 12px; font-size:12.5px; font-weight:600; color:var(--ink); cursor:pointer; }
+  .toolbar .refresh:hover{ border-color:var(--accent); color:var(--accent-dark); }
+
+  table{ width:100%; border-collapse:collapse; background:var(--paper); border:1px solid var(--line); border-radius:14px; overflow:hidden; }
+  thead th{ text-align:left; font-size:11.5px; text-transform:uppercase; letter-spacing:0.4px; color:var(--muted); padding:12px 14px; background:#F7FAF9; border-bottom:1px solid var(--line); }
+  tbody td{ padding:12px 14px; font-size:13.5px; border-bottom:1px solid var(--line); vertical-align:middle; }
+  tbody tr:last-child td{ border-bottom:none; }
+  tbody tr:hover{ background:#FAFDFB; }
+  .empty-row td{ text-align:center; color:var(--muted); padding:30px; font-size:13px; }
+
+  .badge{ display:inline-block; font-size:11px; font-weight:700; padding:4px 10px; border-radius:20px; }
+  .badge.booked, .badge.open{ background:var(--pend-soft); color:var(--pend); }
+  .badge.completed, .badge.closed{ background:var(--ok-soft); color:var(--ok); }
+  .badge.cancelled{ background:var(--danger-soft); color:var(--danger); }
+
+  .actions{ display:flex; gap:6px; flex-wrap:wrap; }
+  .actions button{ font-size:11.5px; font-weight:700; border-radius:8px; padding:6px 10px; cursor:pointer; border:1.5px solid transparent; }
+  .btn-complete{ background:var(--ok-soft); color:var(--ok); }
+  .btn-complete:hover{ border-color:var(--ok); }
+  .btn-cancel{ background:var(--danger-soft); color:var(--danger); }
+  .btn-cancel:hover{ border-color:var(--danger); }
+  .btn-reopen{ background:#EEF1F0; color:var(--ink); }
+  .btn-reopen:hover{ border-color:var(--muted); }
+
+  .phone-link{ font-family:'JetBrains Mono',monospace; font-size:12.5px; color:var(--ink); }
+  .meta-sub{ font-size:11.5px; color:var(--muted); margin-top:2px; }
+  .msg-cell{ max-width:220px; white-space:normal; color:var(--ink-soft); font-size:12.5px; }
+
+  /* notification pill on a tab */
+  .tab{ position:relative; }
+  .tab-count{ display:inline-block; min-width:17px; height:17px; padding:0 4px; border-radius:9px; background:var(--danger); color:#fff; font-size:10px; font-weight:800; text-align:center; line-height:17px; margin-left:6px; vertical-align:middle; }
+
+  /* ---------- Schedule tab ---------- */
+  .schedule-panel{ background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:18px; margin-bottom:18px; }
+  .schedule-panel h3{ margin:0 0 4px; font-family:'Poppins',sans-serif; font-size:14.5px; }
+  .schedule-panel .hint{ font-size:12px; color:var(--muted); margin-bottom:14px; }
+  .date-row{ display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:14px; }
+  .date-row input[type=date]{ padding:8px 10px; border:1.5px solid var(--line); border-radius:8px; font-family:inherit; font-size:13px; }
+  .day-close-btn{ font-size:12.5px; font-weight:700; border-radius:8px; padding:8px 14px; cursor:pointer; border:1.5px solid transparent; }
+  .day-close-btn.close{ background:var(--danger-soft); color:var(--danger); }
+  .day-close-btn.reopen{ background:var(--ok-soft); color:var(--ok); }
+
+  .slot-grid{ display:flex; flex-wrap:wrap; gap:8px; }
+  .slot-pill{ font-family:'JetBrains Mono',monospace; font-size:12.5px; font-weight:600; padding:8px 12px; border-radius:10px; border:1.5px solid var(--line); cursor:pointer; background:#fff; color:var(--ink); transition:all .12s ease; }
+  .slot-pill:hover{ border-color:var(--accent); }
+  .slot-pill.closed{ background:var(--danger-soft); border-color:var(--danger); color:var(--danger); text-decoration:line-through; }
+  .slot-pill.booked{ background:var(--pend-soft); border-color:var(--pend); color:var(--pend); cursor:not-allowed; }
+  .slot-pill.booked:hover{ border-color:var(--pend); }
+  .slot-pill.held{ background:#EFEAFB; border-color:#8B6FD6; color:#6A4FC0; cursor:not-allowed; }
+  .slot-pill.held:hover{ border-color:#8B6FD6; }
+  .slot-legend{ display:flex; gap:14px; margin-top:12px; font-size:11.5px; color:var(--muted); flex-wrap:wrap; }
+  .slot-legend span{ display:inline-flex; align-items:center; gap:5px; }
+  .legend-dot{ width:9px; height:9px; border-radius:3px; display:inline-block; }
+
+  .closed-list{ display:flex; flex-direction:column; gap:8px; margin-top:6px; }
+  .closed-item{ display:flex; align-items:center; justify-content:space-between; background:#FDF8F3; border:1px solid var(--accent-soft); border-radius:10px; padding:9px 13px; font-size:12.5px; }
+  .closed-item .d{ font-weight:700; }
+  .closed-item .r{ color:var(--muted); margin-left:8px; font-weight:400; }
+
+  /* ---------- Medicines tab ---------- */
+  .med-subtabs{ display:flex; gap:8px; margin-bottom:14px; }
+  .med-subtab{ padding:7px 14px; border-radius:20px; font-size:12.5px; font-weight:700; border:1.5px solid var(--line); background:#fff; color:var(--muted); cursor:pointer; }
+  .med-subtab.active{ background:var(--ink); color:#fff; border-color:var(--ink); }
+
+  .add-med-form{ display:flex; gap:8px; flex-wrap:wrap; align-items:flex-end; background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:16px; margin-bottom:16px; }
+  .add-med-form .f{ display:flex; flex-direction:column; gap:5px; }
+  .add-med-form .f label{ font-size:11px; font-weight:700; color:var(--muted); }
+  .add-med-form .f input{ padding:8px 10px; border:1.5px solid var(--line); border-radius:8px; font-size:13px; font-family:inherit; width:130px; }
+  .add-med-form button{ background:var(--accent); color:#fff; border:none; border-radius:8px; padding:9px 16px; font-weight:700; font-size:13px; cursor:pointer; height:36px; }
+  .add-med-form button:hover{ background:var(--accent-dark); }
+
+  .qty-cell{ display:flex; align-items:center; gap:8px; }
+  .qty-cell .qty-num{ font-family:'JetBrains Mono',monospace; font-weight:700; }
+  .qty-cell .qty-num.low{ color:var(--danger); }
+  .qty-edit{ width:60px; padding:5px 6px; border:1.5px solid var(--line); border-radius:6px; font-family:'JetBrains Mono',monospace; font-size:12px; }
+  .btn-save{ background:#EAF3EF; color:var(--ink); }
+  .btn-save:hover{ border-color:var(--accent); }
+  .btn-reject{ background:var(--danger-soft); color:var(--danger); }
+  .btn-reject:hover{ border-color:var(--danger); }
+</style>
+</head>
+<body>
+
+<!-- LOGIN -->
+<div class="login-wrap" id="loginWrap">
+  <div class="login-card">
+    <h1>Doctor / Admin login</h1>
+    <p>Sign in to manage appointments and requests.</p>
+    <div class="login-err" id="loginErr"></div>
+    <form id="loginForm">
+      <div class="field">
+        <label>Username</label>
+        <input type="text" id="username" autocomplete="username" required />
+      </div>
+      <div class="field">
+        <label>Password</label>
+        <input type="password" id="password" autocomplete="current-password" required />
+      </div>
+      <button class="login-btn" type="submit">Log in</button>
+    </form>
+  </div>
+</div>
+
+<!-- DASHBOARD -->
+<div class="app" id="app">
+  <div class="topbar">
+    <div>
+      <div class="brand">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M12 2L3 7v6c0 5 4 9 9 9s9-4 9-9V7l-9-5z" fill="#E8934A"/><path d="M9 12l2 2 4-4" stroke="#123832" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        OPD Sahayak — Dashboard
+      </div>
+      <div class="doc" id="docLine"></div>
+    </div>
+    <button class="logout-btn" id="logoutBtn">Log out</button>
+  </div>
+
+  <div class="container">
+    <div class="stats" id="stats"></div>
+
+    <div class="tabs">
+      <button class="tab active" data-tab="appointments">Appointments</button>
+      <button class="tab" data-tab="requests">Requests</button>
+      <button class="tab" data-tab="schedule">Schedule</button>
+      <button class="tab" data-tab="medicines">Medicines<span class="tab-count" id="medBadge" style="display:none;">0</span></button>
+    </div>
+
+    <!-- Appointments tab -->
+    <div id="tab-appointments">
+      <div class="toolbar">
+        <select id="apptStatusFilter">
+          <option value="">All statuses</option>
+          <option value="booked" selected>Booked</option>
+          <option value="completed">Completed</option>
+          <option value="cancelled">Cancelled</option>
+        </select>
+        <button class="refresh" id="apptRefresh">↻ Refresh</button>
+      </div>
+      <table>
+        <thead>
+          <tr><th>Patient</th><th>Phone</th><th>Day / Date</th><th>Time</th><th>Status</th><th>Actions</th></tr>
+        </thead>
+        <tbody id="apptBody"></tbody>
+      </table>
+    </div>
+
+    <!-- Requests tab -->
+    <div id="tab-requests" style="display:none;">
+      <div class="toolbar">
+        <select id="reqStatusFilter">
+          <option value="">All statuses</option>
+          <option value="open" selected>Open</option>
+          <option value="closed">Closed</option>
+        </select>
+        <select id="reqTypeFilter">
+          <option value="">All types</option>
+          <option value="online">Online Appointment</option>
+          <option value="medicine">Medicine</option>
+          <option value="query">Query</option>
+        </select>
+        <button class="refresh" id="reqRefresh">↻ Refresh</button>
+      </div>
+      <table>
+        <thead>
+          <tr><th>Patient</th><th>Phone</th><th>Type</th><th>Message</th><th>Status</th><th>Actions</th></tr>
+        </thead>
+        <tbody id="reqBody"></tbody>
+      </table>
+    </div>
+
+    <!-- Schedule tab -->
+    <div id="tab-schedule" style="display:none;">
+      <div class="schedule-panel">
+        <h3>Manage a date</h3>
+        <div class="hint">Close the whole day, or close individual time slots — closed slots and days won't be offered to patients.</div>
+        <div class="date-row">
+          <input type="date" id="schedDate" />
+          <button class="day-close-btn close" id="dayToggleBtn">Close this day</button>
+          <span id="dayStatusNote" style="font-size:12.5px; color:var(--muted);"></span>
+        </div>
+        <div class="slot-grid" id="slotGrid"></div>
+        <div class="slot-legend">
+          <span><span class="legend-dot" style="background:#fff;border:1.5px solid var(--line);"></span> Open</span>
+          <span><span class="legend-dot" style="background:var(--pend-soft);border:1px solid var(--pend);"></span> Booked</span>
+          <span><span class="legend-dot" style="background:#EFEAFB;border:1px solid #8B6FD6;"></span> Being booked right now</span>
+          <span><span class="legend-dot" style="background:var(--danger-soft);border:1px solid var(--danger);"></span> Closed (tap to reopen)</span>
+        </div>
+      </div>
+
+      <div class="schedule-panel">
+        <h3>Currently closed days</h3>
+        <div class="hint">Upcoming days marked closed. Tap reopen to make a day bookable again.</div>
+        <div class="closed-list" id="closedDaysList"></div>
+      </div>
+    </div>
+
+    <!-- Medicines tab -->
+    <div id="tab-medicines" style="display:none;">
+      <div class="med-subtabs">
+        <button class="med-subtab active" data-medtab="orders">Orders</button>
+        <button class="med-subtab" data-medtab="inventory">Inventory</button>
+      </div>
+
+      <div id="medtab-orders">
+        <div class="toolbar">
+          <select id="orderStatusFilter">
+            <option value="pending" selected>Pending</option>
+            <option value="accepted">Accepted</option>
+            <option value="rejected">Rejected</option>
+            <option value="">All</option>
+          </select>
+          <button class="refresh" id="orderRefresh">↻ Refresh</button>
+        </div>
+        <table>
+          <thead>
+            <tr><th>Patient</th><th>Phone</th><th>Medicine</th><th>Qty</th><th>Status</th><th>Actions</th></tr>
+          </thead>
+          <tbody id="orderBody"></tbody>
+        </table>
+      </div>
+
+      <div id="medtab-inventory" style="display:none;">
+        <form class="add-med-form" id="addMedForm">
+          <div class="f"><label>Medicine name</label><input type="text" id="medName" required placeholder="e.g. Paracetamol 500mg" style="width:200px;" /></div>
+          <div class="f"><label>Quantity</label><input type="number" id="medQty" min="0" required placeholder="0" /></div>
+          <div class="f"><label>Unit</label><input type="text" id="medUnit" placeholder="tablets" /></div>
+          <div class="f"><label>Price (optional)</label><input type="text" id="medPrice" placeholder="₹2/tab" /></div>
+          <button type="submit">+ Add medicine</button>
+        </form>
+        <table>
+          <thead>
+            <tr><th>Name</th><th>Qty in stock</th><th>Unit</th><th>Price</th><th>Actions</th></tr>
+          </thead>
+          <tbody id="medBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const API = '';
+let token = localStorage.getItem('opd_admin_token') || null;
+
+const loginWrap = document.getElementById('loginWrap');
+const app = document.getElementById('app');
+const loginForm = document.getElementById('loginForm');
+const loginErr = document.getElementById('loginErr');
+
+let pollTimer = null;
+function showApp(doctor){
+  loginWrap.style.display = 'none';
+  app.style.display = 'block';
+  document.getElementById('docLine').textContent = doctor ? `${doctor.name} · ${doctor.clinicName}` : '';
+  loadStats(); loadAppointments(); loadRequests();
+  const today = new Date().toISOString().slice(0,10);
+  document.getElementById('schedDate').value = today;
+  loadSchedule(today); loadClosedDays();
+  loadMedicines(); loadOrders();
+  if (pollTimer) clearInterval(pollTimer);
+  pollTimer = setInterval(()=>{ loadStats(); if (document.getElementById('tab-medicines').style.display !== 'none') loadOrders(); }, 20000);
+}
+function showLogin(){
+  app.style.display = 'none';
+  loginWrap.style.display = 'flex';
+}
+
+async function api(path, options={}){
+  const res = await fetch(API + path, {
+    headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: 'Bearer ' + token } : {}) },
+    ...options,
+  });
+  if (res.status === 401){ token = null; localStorage.removeItem('opd_admin_token'); showLogin(); throw new Error('Session expired'); }
+  const data = await res.json().catch(()=>({}));
+  if (!res.ok) throw new Error(data.error || 'Request failed');
+  return data;
+}
+
+loginForm.onsubmit = async (e)=>{
+  e.preventDefault();
+  loginErr.style.display = 'none';
+  const username = document.getElementById('username').value.trim();
+  const password = document.getElementById('password').value;
+  try{
+    const data = await api('/api/auth/login', { method:'POST', body: JSON.stringify({ username, password }) });
+    token = data.token;
+    localStorage.setItem('opd_admin_token', token);
+    showApp(data.doctor);
+  } catch(err){
+    loginErr.textContent = err.message;
+    loginErr.style.display = 'block';
+  }
+};
+
+document.getElementById('logoutBtn').onclick = ()=>{
+  token = null; localStorage.removeItem('opd_admin_token');
+  showLogin();
+};
+
+// ---------- Tabs ----------
+const TAB_IDS = ['appointments', 'requests', 'schedule', 'medicines'];
+document.querySelectorAll('.tab').forEach(btn=>{
+  btn.onclick = ()=>{
+    document.querySelectorAll('.tab').forEach(b=>b.classList.remove('active'));
+    btn.classList.add('active');
+    const tab = btn.dataset.tab;
+    TAB_IDS.forEach(id => { document.getElementById('tab-' + id).style.display = (id === tab) ? 'block' : 'none'; });
+    if (tab === 'medicines'){ loadMedicines(); loadOrders(); }
+    if (tab === 'schedule'){ loadClosedDays(); loadSchedule(document.getElementById('schedDate').value); }
+  };
+});
+
+// ---------- Stats ----------
+async function loadStats(){
+  try{
+    const s = await api('/api/admin/stats');
+    document.getElementById('stats').innerHTML = `
+      <div class="stat-card"><div class="num">${s.todayCount}</div><div class="lbl">Today's appointments</div></div>
+      <div class="stat-card"><div class="num">${s.upcomingCount}</div><div class="lbl">Upcoming (booked)</div></div>
+      <div class="stat-card"><div class="num">${s.openRequests}</div><div class="lbl">Open requests</div></div>
+      <div class="stat-card"><div class="num">${s.completedTotal}</div><div class="lbl">Completed total</div></div>
+      <div class="stat-card"><div class="num">${s.pendingMedicineOrders}</div><div class="lbl">Pending medicine orders</div></div>
+      <div class="stat-card"><div class="num">${s.lowStockCount}</div><div class="lbl">Low stock (≤5)</div></div>
+    `;
+    const badge = document.getElementById('medBadge');
+    if (s.pendingMedicineOrders > 0){ badge.style.display = 'inline-block'; badge.textContent = s.pendingMedicineOrders; }
+    else { badge.style.display = 'none'; }
+  } catch(e){}
+}
+
+// ---------- Appointments ----------
+async function loadAppointments(){
+  const status = document.getElementById('apptStatusFilter').value;
+  const body = document.getElementById('apptBody');
+  body.innerHTML = `<tr class="empty-row"><td colspan="6">Loading…</td></tr>`;
+  try{
+    const q = status ? `?status=${status}` : '';
+    const { appointments } = await api('/api/admin/appointments' + q);
+    if (!appointments.length){
+      body.innerHTML = `<tr class="empty-row"><td colspan="6">No appointments found.</td></tr>`;
+      return;
+    }
+    body.innerHTML = appointments.map(a => `
+      <tr>
+        <td><strong>${escapeHtml(a.patient_name)}</strong></td>
+        <td class="phone-link">${escapeHtml(a.patient_phone)}</td>
+        <td>${a.day_name}<div class="meta-sub">${a.appointment_date}</div></td>
+        <td>${a.time_slot}</td>
+        <td><span class="badge ${a.status}">${a.status}</span></td>
+        <td>
+          <div class="actions">
+            ${a.status === 'booked' ? `
+              <button class="btn-complete" data-act="completed" data-id="${a.id}">✓ Complete</button>
+              <button class="btn-cancel" data-act="cancelled" data-id="${a.id}">✕ Cancel</button>
+            ` : `
+              <button class="btn-reopen" data-act="booked" data-id="${a.id}">↺ Reopen</button>
+            `}
+          </div>
+        </td>
+      </tr>
+    `).join('');
+
+    body.querySelectorAll('button[data-act]').forEach(btn=>{
+      btn.onclick = async ()=>{
+        btn.disabled = true;
+        try{
+          await api(`/api/admin/appointments/${btn.dataset.id}`, { method:'PATCH', body: JSON.stringify({ status: btn.dataset.act }) });
+          loadAppointments(); loadStats();
+        } catch(e){ alert(e.message); btn.disabled = false; }
+      };
+    });
+  } catch(e){
+    body.innerHTML = `<tr class="empty-row"><td colspan="6">Could not load appointments.</td></tr>`;
+  }
+}
+document.getElementById('apptStatusFilter').onchange = loadAppointments;
+document.getElementById('apptRefresh').onclick = ()=>{ loadAppointments(); loadStats(); };
+
+// ---------- Requests ----------
+async function loadRequests(){
+  const status = document.getElementById('reqStatusFilter').value;
+  const type = document.getElementById('reqTypeFilter').value;
+  const body = document.getElementById('reqBody');
+  body.innerHTML = `<tr class="empty-row"><td colspan="6">Loading…</td></tr>`;
+  try{
+    const params = new URLSearchParams();
+    if (status) params.set('status', status);
+    if (type) params.set('type', type);
+    const qs = params.toString() ? '?' + params.toString() : '';
+    const { requests } = await api('/api/admin/requests' + qs);
+    if (!requests.length){
+      body.innerHTML = `<tr class="empty-row"><td colspan="6">No requests found.</td></tr>`;
+      return;
+    }
+    body.innerHTML = requests.map(r => `
+      <tr>
+        <td><strong>${escapeHtml(r.patient_name)}</strong><div class="meta-sub">${new Date(r.created_at + 'Z').toLocaleString()}</div></td>
+        <td class="phone-link">${escapeHtml(r.patient_phone)}</td>
+        <td>${typeLabel(r.type)}</td>
+        <td class="msg-cell">${escapeHtml(r.message || '—')}</td>
+        <td><span class="badge ${r.status}">${r.status}</span></td>
+        <td>
+          <div class="actions">
+            ${r.status === 'open' ? `
+              <button class="btn-complete" data-act="closed" data-id="${r.id}">✓ Close</button>
+            ` : `
+              <button class="btn-reopen" data-act="open" data-id="${r.id}">↺ Reopen</button>
+            `}
+          </div>
+        </td>
+      </tr>
+    `).join('');
+
+    body.querySelectorAll('button[data-act]').forEach(btn=>{
+      btn.onclick = async ()=>{
+        btn.disabled = true;
+        try{
+          await api(`/api/admin/requests/${btn.dataset.id}`, { method:'PATCH', body: JSON.stringify({ status: btn.dataset.act }) });
+          loadRequests(); loadStats();
+        } catch(e){ alert(e.message); btn.disabled = false; }
+      };
+    });
+  } catch(e){
+    body.innerHTML = `<tr class="empty-row"><td colspan="6">Could not load requests.</td></tr>`;
+  }
+}
+document.getElementById('reqStatusFilter').onchange = loadRequests;
+document.getElementById('reqTypeFilter').onchange = loadRequests;
+document.getElementById('reqRefresh').onclick = ()=>{ loadRequests(); loadStats(); };
+
+function typeLabel(t){
+  return { online:'💻 Online Appointment', medicine:'💊 Medicine', query:'❓ Query' }[t] || t;
+}
+function escapeHtml(s){
+  return String(s).replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+}
+
+// ==================== Schedule ====================
+
+const schedDateInput = document.getElementById('schedDate');
+const dayToggleBtn = document.getElementById('dayToggleBtn');
+let currentDayClosed = false;
+
+schedDateInput.onchange = ()=>{ loadSchedule(schedDateInput.value); };
+
+async function loadSchedule(date){
+  if (!date) return;
+  const slotGrid = document.getElementById('slotGrid');
+  slotGrid.innerHTML = `<span style="color:var(--muted); font-size:12.5px;">Loading…</span>`;
+  document.getElementById('dayStatusNote').textContent = '';
+
+  try{
+    const { closedDays } = await api('/api/admin/schedule/closed-days');
+    currentDayClosed = closedDays.some(d => d.date === date);
+    dayToggleBtn.textContent = currentDayClosed ? '↺ Reopen this day' : '✕ Close this day';
+    dayToggleBtn.className = 'day-close-btn ' + (currentDayClosed ? 'reopen' : 'close');
+    if (currentDayClosed){
+      document.getElementById('dayStatusNote').textContent = 'This day is closed to patients.';
+    }
+
+    const { slots } = await api('/api/admin/schedule/slots?date=' + encodeURIComponent(date));
+    slotGrid.innerHTML = slots.map(s => {
+      const cls = s.closed ? 'closed' : (s.booked ? 'booked' : (s.held ? 'held' : ''));
+      const title = s.held && !s.closed && !s.booked ? 'title="A patient is currently booking this slot"' : '';
+      return `<button class="slot-pill ${cls}" data-time="${s.time}" ${title} ${(s.booked || s.held) && !s.closed ? 'disabled' : ''}>${s.time}</button>`;
+    }).join('');
+
+    slotGrid.querySelectorAll('.slot-pill').forEach(btn=>{
+      btn.onclick = async ()=>{
+        const time = btn.dataset.time;
+        const isClosed = btn.classList.contains('closed');
+        btn.disabled = true;
+        try{
+          if (isClosed){
+            await api('/api/admin/schedule/close-slot', { method:'DELETE', body: JSON.stringify({ date, timeSlot: time }) });
+          } else {
+            await api('/api/admin/schedule/close-slot', { method:'POST', body: JSON.stringify({ date, timeSlot: time }) });
+          }
+          loadSchedule(date);
+        } catch(e){ alert(e.message); btn.disabled = false; }
+      };
+    });
+  } catch(e){
+    slotGrid.innerHTML = `<span style="color:var(--danger); font-size:12.5px;">Could not load slots.</span>`;
+  }
+}
+
+dayToggleBtn.onclick = async ()=>{
+  const date = schedDateInput.value;
+  if (!date) return;
+  dayToggleBtn.disabled = true;
+  try{
+    if (currentDayClosed){
+      await api('/api/admin/schedule/close-day/' + date, { method:'DELETE' });
+    } else {
+      await api('/api/admin/schedule/close-day', { method:'POST', body: JSON.stringify({ date, reason:'' }) });
+    }
+    loadSchedule(date); loadClosedDays();
+  } catch(e){ alert(e.message); }
+  dayToggleBtn.disabled = false;
+};
+
+async function loadClosedDays(){
+  const list = document.getElementById('closedDaysList');
+  try{
+    const { closedDays } = await api('/api/admin/schedule/closed-days');
+    const today = new Date().toISOString().slice(0,10);
+    const upcoming = closedDays.filter(d => d.date >= today);
+    if (!upcoming.length){
+      list.innerHTML = `<div style="color:var(--muted); font-size:12.5px;">No upcoming closed days.</div>`;
+      return;
+    }
+    list.innerHTML = upcoming.map(d => `
+      <div class="closed-item">
+        <span><span class="d">${d.date}</span>${d.reason ? `<span class="r">${escapeHtml(d.reason)}</span>` : ''}</span>
+        <button class="btn-reopen" data-date="${d.date}" style="font-size:11px; font-weight:700; border-radius:8px; padding:5px 10px; cursor:pointer; border:none;">↺ Reopen</button>
+      </div>
+    `).join('');
+    list.querySelectorAll('button[data-date]').forEach(btn=>{
+      btn.onclick = async ()=>{
+        btn.disabled = true;
+        try{
+          await api('/api/admin/schedule/close-day/' + btn.dataset.date, { method:'DELETE' });
+          loadClosedDays();
+          if (schedDateInput.value === btn.dataset.date) loadSchedule(schedDateInput.value);
+        } catch(e){ alert(e.message); btn.disabled = false; }
+      };
+    });
+  } catch(e){
+    list.innerHTML = `<div style="color:var(--danger); font-size:12.5px;">Could not load closed days.</div>`;
+  }
+}
+
+// ==================== Medicines ====================
+
+document.querySelectorAll('.med-subtab').forEach(btn=>{
+  btn.onclick = ()=>{
+    document.querySelectorAll('.med-subtab').forEach(b=>b.classList.remove('active'));
+    btn.classList.add('active');
+    const tab = btn.dataset.medtab;
+    document.getElementById('medtab-orders').style.display = tab === 'orders' ? 'block' : 'none';
+    document.getElementById('medtab-inventory').style.display = tab === 'inventory' ? 'block' : 'none';
+  };
+});
+
+// ---- Inventory ----
+document.getElementById('addMedForm').onsubmit = async (e)=>{
+  e.preventDefault();
+  const name = document.getElementById('medName').value.trim();
+  const qty = document.getElementById('medQty').value;
+  const unit = document.getElementById('medUnit').value.trim();
+  const price = document.getElementById('medPrice').value.trim();
+  if (!name || qty === '') return;
+  try{
+    await api('/api/admin/medicines', { method:'POST', body: JSON.stringify({ name, qty: Number(qty), unit, price }) });
+    document.getElementById('addMedForm').reset();
+    loadMedicines();
+  } catch(e){ alert(e.message); }
+};
+
+async function loadMedicines(){
+  const body = document.getElementById('medBody');
+  body.innerHTML = `<tr class="empty-row"><td colspan="5">Loading…</td></tr>`;
+  try{
+    const { medicines } = await api('/api/admin/medicines');
+    if (!medicines.length){
+      body.innerHTML = `<tr class="empty-row"><td colspan="5">No medicines added yet — use the form above.</td></tr>`;
+      return;
+    }
+    body.innerHTML = medicines.map(m => `
+      <tr>
+        <td><strong>${escapeHtml(m.name)}</strong></td>
+        <td class="qty-cell">
+          <span class="qty-num ${m.qty <= 5 ? 'low' : ''}" id="qtydisp-${m.id}">${m.qty}</span>
+          <input type="number" class="qty-edit" id="qtyedit-${m.id}" value="${m.qty}" min="0" style="display:none;" />
+        </td>
+        <td>${escapeHtml(m.unit || '—')}</td>
+        <td>${escapeHtml(m.price || '—')}</td>
+        <td>
+          <div class="actions">
+            <button class="btn-save" data-restock="${m.id}">↻ Update qty</button>
+            <button class="btn-reject" data-delmed="${m.id}">🗑 Delete</button>
+          </div>
+        </td>
+      </tr>
+    `).join('');
+
+    body.querySelectorAll('button[data-restock]').forEach(btn=>{
+      btn.onclick = async ()=>{
+        const id = btn.dataset.restock;
+        const disp = document.getElementById('qtydisp-' + id);
+        const edit = document.getElementById('qtyedit-' + id);
+        if (edit.style.display === 'none'){
+          disp.style.display = 'none'; edit.style.display = 'inline-block'; edit.focus();
+          btn.textContent = '✓ Save';
+        } else {
+          btn.disabled = true;
+          try{
+            await api('/api/admin/medicines/' + id, { method:'PATCH', body: JSON.stringify({ qty: Number(edit.value) }) });
+            loadMedicines(); loadStats();
+          } catch(e){ alert(e.message); btn.disabled = false; }
+        }
+      };
+    });
+    body.querySelectorAll('button[data-delmed]').forEach(btn=>{
+      btn.onclick = async ()=>{
+        if (!confirm('Delete this medicine from inventory?')) return;
+        btn.disabled = true;
+        try{
+          await api('/api/admin/medicines/' + btn.dataset.delmed, { method:'DELETE' });
+          loadMedicines();
+        } catch(e){ alert(e.message); btn.disabled = false; }
+      };
+    });
+  } catch(e){
+    body.innerHTML = `<tr class="empty-row"><td colspan="5">Could not load medicines.</td></tr>`;
+  }
+}
+
+// ---- Orders ----
+document.getElementById('orderStatusFilter').onchange = loadOrders;
+document.getElementById('orderRefresh').onclick = ()=>{ loadOrders(); loadStats(); };
+
+async function loadOrders(){
+  const status = document.getElementById('orderStatusFilter').value;
+  const body = document.getElementById('orderBody');
+  body.innerHTML = `<tr class="empty-row"><td colspan="6">Loading…</td></tr>`;
+  try{
+    const q = status ? `?status=${status}` : '';
+    const { orders } = await api('/api/admin/medicine-orders' + q);
+    if (!orders.length){
+      body.innerHTML = `<tr class="empty-row"><td colspan="6">No orders found.</td></tr>`;
+      return;
+    }
+    body.innerHTML = orders.map(o => `
+      <tr>
+        <td><strong>${escapeHtml(o.patient_name)}</strong><div class="meta-sub">${new Date(o.created_at + 'Z').toLocaleString()}</div></td>
+        <td class="phone-link">${escapeHtml(o.patient_phone)}</td>
+        <td>💊 ${escapeHtml(o.medicine_name)}</td>
+        <td>${o.quantity}</td>
+        <td><span class="badge ${o.status === 'pending' ? 'booked' : (o.status === 'accepted' ? 'completed' : 'cancelled')}">${o.status}</span></td>
+        <td>
+          <div class="actions">
+            ${o.status === 'pending' ? `
+              <button class="btn-complete" data-oact="accepted" data-oid="${o.id}">✓ Accept</button>
+              <button class="btn-cancel" data-oact="rejected" data-oid="${o.id}">✕ Reject</button>
+            ` : `<span style="color:var(--muted); font-size:12px;">—</span>`}
+          </div>
+        </td>
+      </tr>
+    `).join('');
+
+    body.querySelectorAll('button[data-oact]').forEach(btn=>{
+      btn.onclick = async ()=>{
+        btn.disabled = true;
+        try{
+          await api(`/api/admin/medicine-orders/${btn.dataset.oid}`, { method:'PATCH', body: JSON.stringify({ status: btn.dataset.oact }) });
+          loadOrders(); loadStats(); loadMedicines();
+        } catch(e){ alert(e.message); btn.disabled = false; }
+      };
+    });
+  } catch(e){
+    body.innerHTML = `<tr class="empty-row"><td colspan="6">Could not load orders.</td></tr>`;
+  }
+}
+
+// ---------- Boot ----------
+if (token){
+  api('/api/admin/stats').then(()=> showApp(null)).catch(()=> showLogin());
+} else {
+  showLogin();
+}
+</script>
+</body>
+</html>
