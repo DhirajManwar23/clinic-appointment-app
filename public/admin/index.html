@@ -133,6 +133,23 @@
   .btn-save:hover{ border-color:var(--accent); }
   .btn-reject{ background:var(--danger-soft); color:var(--danger); }
   .btn-reject:hover{ border-color:var(--danger); }
+  .btn-edit{ background:#EAF0FB; color:#3B5FBF; }
+  .btn-edit:hover{ border-color:#3B5FBF; }
+
+  /* ---------- Edit modal ---------- */
+  .modal-overlay{
+    position:fixed; inset:0; background:rgba(14,43,38,0.55);
+    display:flex; align-items:center; justify-content:center; z-index:1000; padding:20px;
+  }
+  .modal-card{
+    background:#fff; border-radius:18px; padding:26px 28px; width:100%; max-width:380px;
+    box-shadow:0 20px 50px rgba(0,0,0,0.3);
+  }
+  .modal-card h3{ margin:0 0 16px; font-family:'Poppins',sans-serif; font-size:16px; }
+  .modal-card .field input, .modal-card .field select{
+    width:100%; padding:9px 11px; border:1.5px solid var(--line); border-radius:9px; font-size:13.5px; font-family:inherit; outline:none;
+  }
+  .modal-card .field input:focus, .modal-card .field select:focus{ border-color:var(--accent); }
 </style>
 </head>
 <body>
@@ -189,11 +206,26 @@
           <option value="completed">Completed</option>
           <option value="cancelled">Cancelled</option>
         </select>
+        <select id="apptModeFilter">
+          <option value="">All modes</option>
+          <option value="offline">🏥 Offline</option>
+          <option value="online">💻 Online</option>
+        </select>
+        <select id="apptPeriodType">
+          <option value="">All dates</option>
+          <option value="day">Day</option>
+          <option value="week">Week</option>
+          <option value="month">Month</option>
+        </select>
+        <input type="date" id="apptDayPicker" style="display:none; padding:8px 10px; border:1.5px solid var(--line); border-radius:8px; font-family:inherit; font-size:13px;" />
+        <input type="week" id="apptWeekPicker" style="display:none; padding:8px 10px; border:1.5px solid var(--line); border-radius:8px; font-family:inherit; font-size:13px;" />
+        <input type="month" id="apptMonthPicker" style="display:none; padding:8px 10px; border:1.5px solid var(--line); border-radius:8px; font-family:inherit; font-size:13px;" />
+        <input type="text" id="apptSearch" placeholder="Search name or phone…" style="padding:8px 10px; border:1.5px solid var(--line); border-radius:8px; font-family:inherit; font-size:13px; width:170px;" />
         <button class="refresh" id="apptRefresh">↻ Refresh</button>
       </div>
       <table>
         <thead>
-          <tr><th>Patient</th><th>Phone</th><th>Day / Date</th><th>Time</th><th>Status</th><th>Actions</th></tr>
+          <tr><th>Patient</th><th>Phone</th><th>Mode</th><th>Day / Date</th><th>Time</th><th>Status</th><th>Actions</th></tr>
         </thead>
         <tbody id="apptBody"></tbody>
       </table>
@@ -207,12 +239,7 @@
           <option value="open" selected>Open</option>
           <option value="closed">Closed</option>
         </select>
-        <select id="reqTypeFilter">
-          <option value="">All types</option>
-          <option value="online">Online Appointment</option>
-          <option value="medicine">Medicine</option>
-          <option value="query">Query</option>
-        </select>
+        <input type="text" id="reqSearch" placeholder="Search name or phone…" style="padding:8px 10px; border:1.5px solid var(--line); border-radius:8px; font-family:inherit; font-size:13px; width:170px;" />
         <button class="refresh" id="reqRefresh">↻ Refresh</button>
       </div>
       <table>
@@ -264,6 +291,7 @@
             <option value="rejected">Rejected</option>
             <option value="">All</option>
           </select>
+          <input type="text" id="orderSearch" placeholder="Search name or phone…" style="padding:8px 10px; border:1.5px solid var(--line); border-radius:8px; font-family:inherit; font-size:13px; width:170px;" />
           <button class="refresh" id="orderRefresh">↻ Refresh</button>
         </div>
         <table>
@@ -290,6 +318,37 @@
         </table>
       </div>
     </div>
+  </div>
+</div>
+
+<!-- Edit appointment modal -->
+<div class="modal-overlay" id="editModalOverlay" style="display:none;">
+  <div class="modal-card">
+    <h3>Edit appointment</h3>
+    <div class="login-err" id="editErr" style="display:none;"></div>
+    <form id="editApptForm">
+      <input type="hidden" id="editApptId" />
+      <div class="field">
+        <label>Patient name</label>
+        <input type="text" id="editName" required />
+      </div>
+      <div class="field">
+        <label>Phone</label>
+        <input type="tel" id="editPhone" maxlength="10" required />
+      </div>
+      <div class="field">
+        <label>Date</label>
+        <input type="date" id="editDate" required />
+      </div>
+      <div class="field">
+        <label>Time slot</label>
+        <select id="editTimeSlot" required></select>
+      </div>
+      <div style="display:flex; gap:8px; margin-top:16px;">
+        <button type="submit" class="login-btn" style="flex:1;">Save changes</button>
+        <button type="button" id="editCancelBtn" style="flex:1; background:#EEF1F0; color:var(--ink); border:none; border-radius:10px; font-weight:700; cursor:pointer;">Cancel</button>
+      </div>
+    </form>
   </div>
 </div>
 
@@ -384,24 +443,95 @@ async function loadStats(){
 }
 
 // ---------- Appointments ----------
+
+// Duplicated from server/utils/slots.js TIME_SLOTS — keep in sync if that list changes.
+const TIME_SLOTS = ['2:45 PM','3:00 PM','3:15 PM','3:30 PM','3:45 PM','4:00 PM','4:15 PM','4:30 PM','4:45 PM','5:00 PM','5:15 PM','5:30 PM'];
+
+function toISO(d){ return d.toISOString().slice(0,10); }
+
+// ISO-week input gives "YYYY-Www" — convert to a Monday..Sunday date range.
+function isoWeekToRange(weekStr){
+  const [yearStr, weekPart] = weekStr.split('-W');
+  const year = parseInt(yearStr, 10);
+  const week = parseInt(weekPart, 10);
+  const jan4 = new Date(year, 0, 4);
+  const jan4Day = (jan4.getDay() + 6) % 7; // Monday = 0
+  const week1Monday = new Date(jan4);
+  week1Monday.setDate(jan4.getDate() - jan4Day);
+  const monday = new Date(week1Monday);
+  monday.setDate(week1Monday.getDate() + (week - 1) * 7);
+  const sunday = new Date(monday);
+  sunday.setDate(monday.getDate() + 6);
+  return { from: toISO(monday), to: toISO(sunday) };
+}
+
+function monthToRange(monthStr){
+  const [year, month] = monthStr.split('-').map(Number);
+  const first = new Date(year, month - 1, 1);
+  const last = new Date(year, month, 0);
+  return { from: toISO(first), to: toISO(last) };
+}
+
+function currentDateRange(){
+  const type = document.getElementById('apptPeriodType').value;
+  if (type === 'day'){
+    const v = document.getElementById('apptDayPicker').value;
+    return v ? { from: v, to: v } : null;
+  }
+  if (type === 'week'){
+    const v = document.getElementById('apptWeekPicker').value;
+    return v ? isoWeekToRange(v) : null;
+  }
+  if (type === 'month'){
+    const v = document.getElementById('apptMonthPicker').value;
+    return v ? monthToRange(v) : null;
+  }
+  return null;
+}
+
+document.getElementById('apptPeriodType').onchange = ()=>{
+  const type = document.getElementById('apptPeriodType').value;
+  document.getElementById('apptDayPicker').style.display = type === 'day' ? 'inline-block' : 'none';
+  document.getElementById('apptWeekPicker').style.display = type === 'week' ? 'inline-block' : 'none';
+  document.getElementById('apptMonthPicker').style.display = type === 'month' ? 'inline-block' : 'none';
+  loadAppointments();
+};
+document.getElementById('apptDayPicker').onchange = loadAppointments;
+document.getElementById('apptWeekPicker').onchange = loadAppointments;
+document.getElementById('apptMonthPicker').onchange = loadAppointments;
+let apptSearchTimer = null;
+document.getElementById('apptSearch').oninput = ()=>{
+  clearTimeout(apptSearchTimer);
+  apptSearchTimer = setTimeout(loadAppointments, 350);
+};
+
 async function loadAppointments(){
   const status = document.getElementById('apptStatusFilter').value;
+  const mode = document.getElementById('apptModeFilter').value;
+  const search = document.getElementById('apptSearch').value;
+  const range = currentDateRange();
   const body = document.getElementById('apptBody');
-  body.innerHTML = `<tr class="empty-row"><td colspan="6">Loading…</td></tr>`;
+  body.innerHTML = `<tr class="empty-row"><td colspan="7">Loading…</td></tr>`;
   try{
-    const q = status ? `?status=${status}` : '';
-    const { appointments } = await api('/api/admin/appointments' + q);
+    const params = new URLSearchParams();
+    if (status) params.set('status', status);
+    if (mode) params.set('mode', mode);
+    if (search.trim()) params.set('search', search.trim());
+    if (range){ params.set('dateFrom', range.from); params.set('dateTo', range.to); }
+    const qs = params.toString() ? '?' + params.toString() : '';
+    const { appointments } = await api('/api/admin/appointments' + qs);
     if (!appointments.length){
-      body.innerHTML = `<tr class="empty-row"><td colspan="6">No appointments found.</td></tr>`;
+      body.innerHTML = `<tr class="empty-row"><td colspan="7">No appointments found.</td></tr>`;
       return;
     }
     body.innerHTML = appointments.map(a => `
       <tr>
         <td><strong>${escapeHtml(a.patient_name)}</strong></td>
         <td class="phone-link">${escapeHtml(a.patient_phone)}</td>
+        <td>${a.mode === 'online' ? '💻 Online' : '🏥 Offline'}</td>
         <td>${a.day_name}<div class="meta-sub">${a.appointment_date}</div></td>
         <td>${a.time_slot}</td>
-        <td><span class="badge ${a.status}">${a.status}</span></td>
+        <td><span class="badge ${a.status}">${a.status}</span>${a.notes ? ` <span title="${escapeHtml(a.notes)}" style="cursor:help;">📝</span>` : ''}</td>
         <td>
           <div class="actions">
             ${a.status === 'booked' ? `
@@ -410,6 +540,7 @@ async function loadAppointments(){
             ` : `
               <button class="btn-reopen" data-act="booked" data-id="${a.id}">↺ Reopen</button>
             `}
+            <button class="btn-edit" data-edit="${a.id}">✎ Edit</button>
           </div>
         </td>
       </tr>
@@ -417,30 +548,83 @@ async function loadAppointments(){
 
     body.querySelectorAll('button[data-act]').forEach(btn=>{
       btn.onclick = async ()=>{
+        const act = btn.dataset.act;
+        let notes;
+        if (act === 'cancelled' || act === 'completed'){
+          notes = window.prompt(act === 'cancelled' ? 'Add a reason for cancelling (optional):' : 'Add a note before marking complete (optional):', '');
+          if (notes === null) return; // admin backed out of the prompt
+        }
         btn.disabled = true;
         try{
-          await api(`/api/admin/appointments/${btn.dataset.id}`, { method:'PATCH', body: JSON.stringify({ status: btn.dataset.act }) });
+          const payload = { status: act };
+          if (notes !== undefined) payload.notes = notes;
+          await api(`/api/admin/appointments/${btn.dataset.id}`, { method:'PATCH', body: JSON.stringify(payload) });
           loadAppointments(); loadStats();
         } catch(e){ alert(e.message); btn.disabled = false; }
       };
     });
+    body.querySelectorAll('button[data-edit]').forEach(btn=>{
+      btn.onclick = ()=>{
+        const appt = appointments.find(x => String(x.id) === btn.dataset.edit);
+        if (appt) openEditModal(appt);
+      };
+    });
   } catch(e){
-    body.innerHTML = `<tr class="empty-row"><td colspan="6">Could not load appointments.</td></tr>`;
+    body.innerHTML = `<tr class="empty-row"><td colspan="7">Could not load appointments.</td></tr>`;
   }
 }
 document.getElementById('apptStatusFilter').onchange = loadAppointments;
+document.getElementById('apptModeFilter').onchange = loadAppointments;
 document.getElementById('apptRefresh').onclick = ()=>{ loadAppointments(); loadStats(); };
+
+// ---------- Edit appointment modal ----------
+const editOverlay = document.getElementById('editModalOverlay');
+const editErr = document.getElementById('editErr');
+
+function openEditModal(appt){
+  editErr.style.display = 'none';
+  document.getElementById('editApptId').value = appt.id;
+  document.getElementById('editName').value = appt.patient_name;
+  document.getElementById('editPhone').value = appt.patient_phone;
+  document.getElementById('editDate').value = appt.appointment_date;
+  const sel = document.getElementById('editTimeSlot');
+  sel.innerHTML = TIME_SLOTS.map(t => `<option value="${t}" ${t === appt.time_slot ? 'selected' : ''}>${t}</option>`).join('');
+  editOverlay.style.display = 'flex';
+}
+function closeEditModal(){ editOverlay.style.display = 'none'; }
+document.getElementById('editCancelBtn').onclick = closeEditModal;
+editOverlay.onclick = (e)=>{ if (e.target === editOverlay) closeEditModal(); };
+
+document.getElementById('editApptForm').onsubmit = async (e)=>{
+  e.preventDefault();
+  editErr.style.display = 'none';
+  const id = document.getElementById('editApptId').value;
+  const payload = {
+    patientName: document.getElementById('editName').value.trim(),
+    patientPhone: document.getElementById('editPhone').value.trim(),
+    date: document.getElementById('editDate').value,
+    timeSlot: document.getElementById('editTimeSlot').value,
+  };
+  try{
+    await api(`/api/admin/appointments/${id}`, { method:'PATCH', body: JSON.stringify(payload) });
+    closeEditModal();
+    loadAppointments(); loadStats();
+  } catch(err){
+    editErr.textContent = err.message;
+    editErr.style.display = 'block';
+  }
+};
 
 // ---------- Requests ----------
 async function loadRequests(){
   const status = document.getElementById('reqStatusFilter').value;
-  const type = document.getElementById('reqTypeFilter').value;
+  const search = document.getElementById('reqSearch').value;
   const body = document.getElementById('reqBody');
   body.innerHTML = `<tr class="empty-row"><td colspan="6">Loading…</td></tr>`;
   try{
     const params = new URLSearchParams();
     if (status) params.set('status', status);
-    if (type) params.set('type', type);
+    if (search.trim()) params.set('search', search.trim());
     const qs = params.toString() ? '?' + params.toString() : '';
     const { requests } = await api('/api/admin/requests' + qs);
     if (!requests.length){
@@ -453,7 +637,7 @@ async function loadRequests(){
         <td class="phone-link">${escapeHtml(r.patient_phone)}</td>
         <td>${typeLabel(r.type)}</td>
         <td class="msg-cell">${escapeHtml(r.message || '—')}</td>
-        <td><span class="badge ${r.status}">${r.status}</span></td>
+        <td><span class="badge ${r.status}">${r.status}</span>${r.notes ? ` <span title="${escapeHtml(r.notes)}" style="cursor:help;">📝</span>` : ''}</td>
         <td>
           <div class="actions">
             ${r.status === 'open' ? `
@@ -468,9 +652,17 @@ async function loadRequests(){
 
     body.querySelectorAll('button[data-act]').forEach(btn=>{
       btn.onclick = async ()=>{
+        const act = btn.dataset.act;
+        let notes;
+        if (act === 'closed'){
+          notes = window.prompt('Add a note before closing (optional):', '');
+          if (notes === null) return;
+        }
         btn.disabled = true;
         try{
-          await api(`/api/admin/requests/${btn.dataset.id}`, { method:'PATCH', body: JSON.stringify({ status: btn.dataset.act }) });
+          const payload = { status: act };
+          if (notes !== undefined) payload.notes = notes;
+          await api(`/api/admin/requests/${btn.dataset.id}`, { method:'PATCH', body: JSON.stringify(payload) });
           loadRequests(); loadStats();
         } catch(e){ alert(e.message); btn.disabled = false; }
       };
@@ -480,8 +672,9 @@ async function loadRequests(){
   }
 }
 document.getElementById('reqStatusFilter').onchange = loadRequests;
-document.getElementById('reqTypeFilter').onchange = loadRequests;
 document.getElementById('reqRefresh').onclick = ()=>{ loadRequests(); loadStats(); };
+let reqSearchTimer = null;
+document.getElementById('reqSearch').oninput = ()=>{ clearTimeout(reqSearchTimer); reqSearchTimer = setTimeout(loadRequests, 350); };
 
 function typeLabel(t){
   return { online:'💻 Online Appointment', medicine:'💊 Medicine', query:'❓ Query' }[t] || t;
@@ -506,17 +699,22 @@ async function loadSchedule(date){
 
   try{
     const { closedDays } = await api('/api/admin/schedule/closed-days');
-    currentDayClosed = closedDays.some(d => d.date === date);
+    const closedDayRow = closedDays.find(d => d.date === date);
+    currentDayClosed = !!closedDayRow;
     dayToggleBtn.textContent = currentDayClosed ? '↺ Reopen this day' : '✕ Close this day';
     dayToggleBtn.className = 'day-close-btn ' + (currentDayClosed ? 'reopen' : 'close');
     if (currentDayClosed){
-      document.getElementById('dayStatusNote').textContent = 'This day is closed to patients.';
+      document.getElementById('dayStatusNote').textContent = closedDayRow.reason
+        ? `This day is closed to patients — "${closedDayRow.reason}"`
+        : 'This day is closed to patients.';
     }
 
     const { slots } = await api('/api/admin/schedule/slots?date=' + encodeURIComponent(date));
     slotGrid.innerHTML = slots.map(s => {
       const cls = s.closed ? 'closed' : (s.booked ? 'booked' : (s.held ? 'held' : ''));
-      const title = s.held && !s.closed && !s.booked ? 'title="A patient is currently booking this slot"' : '';
+      let title = '';
+      if (s.closed && s.reason) title = `title="${escapeHtml(s.reason)}"`;
+      else if (s.held && !s.closed && !s.booked) title = 'title="A patient is currently booking this slot"';
       return `<button class="slot-pill ${cls}" data-time="${s.time}" ${title} ${(s.booked || s.held) && !s.closed ? 'disabled' : ''}>${s.time}</button>`;
     }).join('');
 
@@ -524,15 +722,21 @@ async function loadSchedule(date){
       btn.onclick = async ()=>{
         const time = btn.dataset.time;
         const isClosed = btn.classList.contains('closed');
-        btn.disabled = true;
-        try{
-          if (isClosed){
+        if (isClosed){
+          btn.disabled = true;
+          try{
             await api('/api/admin/schedule/close-slot', { method:'DELETE', body: JSON.stringify({ date, timeSlot: time }) });
-          } else {
-            await api('/api/admin/schedule/close-slot', { method:'POST', body: JSON.stringify({ date, timeSlot: time }) });
-          }
-          loadSchedule(date);
-        } catch(e){ alert(e.message); btn.disabled = false; }
+            loadSchedule(date);
+          } catch(e){ alert(e.message); btn.disabled = false; }
+        } else {
+          const reason = window.prompt('Add a reason for closing this slot (optional):', '');
+          if (reason === null) return;
+          btn.disabled = true;
+          try{
+            await api('/api/admin/schedule/close-slot', { method:'POST', body: JSON.stringify({ date, timeSlot: time, reason }) });
+            loadSchedule(date);
+          } catch(e){ alert(e.message); btn.disabled = false; }
+        }
       };
     });
   } catch(e){
@@ -543,16 +747,23 @@ async function loadSchedule(date){
 dayToggleBtn.onclick = async ()=>{
   const date = schedDateInput.value;
   if (!date) return;
-  dayToggleBtn.disabled = true;
-  try{
-    if (currentDayClosed){
+  if (currentDayClosed){
+    dayToggleBtn.disabled = true;
+    try{
       await api('/api/admin/schedule/close-day/' + date, { method:'DELETE' });
-    } else {
-      await api('/api/admin/schedule/close-day', { method:'POST', body: JSON.stringify({ date, reason:'' }) });
-    }
-    loadSchedule(date); loadClosedDays();
-  } catch(e){ alert(e.message); }
-  dayToggleBtn.disabled = false;
+      loadSchedule(date); loadClosedDays();
+    } catch(e){ alert(e.message); }
+    dayToggleBtn.disabled = false;
+  } else {
+    const reason = window.prompt('Add a reason for closing this day (optional):', '');
+    if (reason === null) return;
+    dayToggleBtn.disabled = true;
+    try{
+      await api('/api/admin/schedule/close-day', { method:'POST', body: JSON.stringify({ date, reason }) });
+      loadSchedule(date); loadClosedDays();
+    } catch(e){ alert(e.message); }
+    dayToggleBtn.disabled = false;
+  }
 };
 
 async function loadClosedDays(){
@@ -693,7 +904,7 @@ async function loadOrders(){
         <td class="phone-link">${escapeHtml(o.patient_phone)}</td>
         <td>💊 ${escapeHtml(o.medicine_name)}</td>
         <td>${o.quantity}</td>
-        <td><span class="badge ${o.status === 'pending' ? 'booked' : (o.status === 'accepted' ? 'completed' : 'cancelled')}">${o.status}</span></td>
+        <td><span class="badge ${o.status === 'pending' ? 'booked' : (o.status === 'accepted' ? 'completed' : 'cancelled')}">${o.status}</span>${o.notes ? ` <span title="${escapeHtml(o.notes)}" style="cursor:help;">📝</span>` : ''}</td>
         <td>
           <div class="actions">
             ${o.status === 'pending' ? `
@@ -707,9 +918,12 @@ async function loadOrders(){
 
     body.querySelectorAll('button[data-oact]').forEach(btn=>{
       btn.onclick = async ()=>{
+        const act = btn.dataset.oact;
+        const notes = window.prompt(act === 'accepted' ? 'Add a note before accepting (optional):' : 'Add a reason for rejecting (optional):', '');
+        if (notes === null) return;
         btn.disabled = true;
         try{
-          await api(`/api/admin/medicine-orders/${btn.dataset.oid}`, { method:'PATCH', body: JSON.stringify({ status: btn.dataset.oact }) });
+          await api(`/api/admin/medicine-orders/${btn.dataset.oid}`, { method:'PATCH', body: JSON.stringify({ status: act, notes }) });
           loadOrders(); loadStats(); loadMedicines();
         } catch(e){ alert(e.message); btn.disabled = false; }
       };

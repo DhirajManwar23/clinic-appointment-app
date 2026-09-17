@@ -120,6 +120,16 @@
 
 <script>
 const API = ''; // same origin
+
+// Mirrors server/utils/validate.js: strips spaces/dashes/+91, checks 10-digit Indian mobile format.
+function normalizePhone(value){
+  const digits = String(value || '').replace(/\D/g, '');
+  if (digits.length === 12 && digits.startsWith('91')) return digits.slice(2);
+  return digits;
+}
+function isValidPhone(value){
+  return /^[6-9]\d{9}$/.test(normalizePhone(value));
+}
 const thread = document.getElementById('thread');
 const composer = document.getElementById('composer');
 const restartBtn = document.getElementById('restartBtn');
@@ -139,6 +149,7 @@ const T = {
       { key:'online', icon:'💻', title:'Online Appointment', sub:'Video / phone consult' },
       { key:'medicine', icon:'💊', title:'Medicine', sub:'Refill or order medicine' },
       { key:'query', icon:'❓', title:'Query', sub:'Ask us something' },
+      { key:'mybookings', icon:'📋', title:'My Bookings', sub:'Check your appointment status' },
     ],
     dayPrompt: "Great choice. Which day works for your visit?",
     loadingSlots: "Checking available time slots…",
@@ -152,7 +163,7 @@ const T = {
     send: "Send",
     confirmTitle: "Appointment confirmed",
     requestTitle: "Request received",
-    labels: { language:'Language', service:'Service', day:'Day', time:'Time', name:'Name', phone:'Phone', ref:'Reference ID', medicine:'Medicine', qty:'Quantity' },
+    labels: { language:'Language', service:'Service', day:'Day', time:'Time', name:'Name', phone:'Phone', ref:'Reference ID', medicine:'Medicine', qty:'Quantity', status:'Status' },
     confirmMsg: "You're all set! We've noted your details below. The clinic team may call to confirm.",
     requestMsg: "Thanks! Our team will reach out to you shortly.",
     changeLink: "Start a new booking",
@@ -161,6 +172,7 @@ const T = {
     slotTakenErr: "That slot was just taken — please pick another.",
     genericErr: "Something went wrong. Please try again.",
     slotHeld: (time) => `Got it — I've reserved ${time} for you for the next 5 minutes while you finish booking.`,
+    onlineNotePrompt: "Anything specific you'd like the doctor to know before your video/phone consult? (optional — you can also just tap send)",
     medicinePrompt: "Which medicine do you need?",
     loadingMedicines: "Loading medicine list…",
     outOfStock: "Out of stock",
@@ -171,6 +183,13 @@ const T = {
     medicineOrderTitle: "Order placed",
     medicineOrderMsg: "Thanks! Your order has been sent to the clinic — they'll confirm once it's ready.",
     noMedicines: "No medicines are listed right now. Please try the Query option instead.",
+    invalidPhone: "Please enter a valid 10-digit mobile number (starting with 6-9).",
+    mybookingsAskPhone: "Sure — please enter the phone number you booked with.",
+    noBookingsFound: "We couldn't find any bookings, orders or requests for that number.",
+    sectionAppointments: "Appointment",
+    sectionMedicineOrders: "Medicine Order",
+    sectionRequests: "Query",
+    statusLabels: { booked:'Booked', completed:'Completed', cancelled:'Cancelled', pending:'Pending', accepted:'Accepted', rejected:'Rejected', open:'Open', closed:'Closed' },
   },
   hi: {
     greet: "नमस्ते! 👋 आगे बढ़ने के लिए कृपया अपनी भाषा चुनें।",
@@ -180,6 +199,7 @@ const T = {
       { key:'online', icon:'💻', title:'ऑनलाइन अपॉइंटमेंट', sub:'वीडियो / फोन परामर्श' },
       { key:'medicine', icon:'💊', title:'दवाई', sub:'दवा दोबारा मंगवाएं' },
       { key:'query', icon:'❓', title:'प्रश्न', sub:'कुछ पूछें' },
+      { key:'mybookings', icon:'📋', title:'मेरी बुकिंग', sub:'अपनी अपॉइंटमेंट स्थिति देखें' },
     ],
     dayPrompt: "बढ़िया चुनाव। आपके लिए कौन सा दिन ठीक रहेगा?",
     loadingSlots: "उपलब्ध समय जांचा जा रहा है…",
@@ -193,7 +213,7 @@ const T = {
     send: "भेजें",
     confirmTitle: "अपॉइंटमेंट कन्फर्म हो गई",
     requestTitle: "आपका अनुरोध मिल गया",
-    labels: { language:'भाषा', service:'सेवा', day:'दिन', time:'समय', name:'नाम', phone:'फ़ोन', ref:'रेफरेंस आईडी', medicine:'दवाई', qty:'मात्रा' },
+    labels: { language:'भाषा', service:'सेवा', day:'दिन', time:'समय', name:'नाम', phone:'फ़ोन', ref:'रेफरेंस आईडी', medicine:'दवाई', qty:'मात्रा', status:'स्थिति' },
     confirmMsg: "आपकी बुकिंग तैयार है! विवरण नीचे दिया गया है। क्लिनिक टीम पुष्टि के लिए कॉल कर सकती है।",
     requestMsg: "धन्यवाद! हमारी टीम जल्द ही आपसे संपर्क करेगी।",
     changeLink: "नई बुकिंग शुरू करें",
@@ -202,6 +222,7 @@ const T = {
     slotTakenErr: "वह समय अभी किसी और ने ले लिया — कृपया दूसरा चुनें।",
     genericErr: "कुछ गड़बड़ हुई। कृपया फिर कोशिश करें।",
     slotHeld: (time) => `ठीक है — मैंने ${time} आपके लिए अगले 5 मिनट तक सुरक्षित रख दिया है, तब तक बुकिंग पूरी कर लें।`,
+    onlineNotePrompt: "वीडियो/फोन परामर्श से पहले डॉक्टर को कुछ खास बताना है? (वैकल्पिक — आप सीधे भेजें भी दबा सकते हैं)",
     medicinePrompt: "आपको कौन सी दवा चाहिए?",
     loadingMedicines: "दवाइयों की सूची लोड हो रही है…",
     outOfStock: "स्टॉक में नहीं",
@@ -212,6 +233,13 @@ const T = {
     medicineOrderTitle: "ऑर्डर दर्ज हो गया",
     medicineOrderMsg: "धन्यवाद! आपका ऑर्डर क्लिनिक को भेज दिया गया है — तैयार होते ही वे पुष्टि करेंगे।",
     noMedicines: "अभी कोई दवा सूचीबद्ध नहीं है। कृपया इसके बजाय 'प्रश्न' विकल्प आज़माएं।",
+    invalidPhone: "कृपया एक सही 10 अंकों का मोबाइल नंबर डालें (6-9 से शुरू होने वाला)।",
+    mybookingsAskPhone: "ठीक है — कृपया वह फ़ोन नंबर बताएं जिससे आपने बुकिंग की थी।",
+    noBookingsFound: "इस नंबर के लिए कोई बुकिंग, ऑर्डर या अनुरोध नहीं मिला।",
+    sectionAppointments: "अपॉइंटमेंट",
+    sectionMedicineOrders: "दवाई ऑर्डर",
+    sectionRequests: "प्रश्न",
+    statusLabels: { booked:'बुक हुई', completed:'पूर्ण', cancelled:'रद्द', pending:'लंबित', accepted:'स्वीकृत', rejected:'अस्वीकृत', open:'खुला', closed:'बंद' },
   },
   mr: {
     greet: "नमस्कार! 👋 पुढे जाण्यासाठी कृपया तुमची भाषा निवडा.",
@@ -221,6 +249,7 @@ const T = {
       { key:'online', icon:'💻', title:'ऑनलाइन अपॉइंटमेंट', sub:'व्हिडिओ / फोन सल्ला' },
       { key:'medicine', icon:'💊', title:'औषध', sub:'औषध पुन्हा मागवा' },
       { key:'query', icon:'❓', title:'प्रश्न', sub:'आम्हाला काही विचारा' },
+      { key:'mybookings', icon:'📋', title:'माझी बुकिंग', sub:'तुमची अपॉइंटमेंट स्थिती पहा' },
     ],
     dayPrompt: "उत्तम निवड! तुमच्यासाठी कोणता दिवस सोयीचा आहे?",
     loadingSlots: "उपलब्ध वेळ तपासत आहोत…",
@@ -234,7 +263,7 @@ const T = {
     send: "पाठवा",
     confirmTitle: "अपॉइंटमेंट निश्चित झाली",
     requestTitle: "तुमची विनंती मिळाली",
-    labels: { language:'भाषा', service:'सेवा', day:'दिवस', time:'वेळ', name:'नाव', phone:'फोन', ref:'संदर्भ आयडी', medicine:'औषध', qty:'प्रमाण' },
+    labels: { language:'भाषा', service:'सेवा', day:'दिवस', time:'वेळ', name:'नाव', phone:'फोन', ref:'संदर्भ आयडी', medicine:'औषध', qty:'प्रमाण', status:'स्थिती' },
     confirmMsg: "तुमची बुकिंग तयार आहे! तपशील खाली दिला आहे. क्लिनिक टीम पुष्टीसाठी कॉल करू शकते.",
     requestMsg: "धन्यवाद! आमची टीम लवकरच तुमच्याशी संपर्क साधेल.",
     changeLink: "नवीन बुकिंग सुरू करा",
@@ -243,6 +272,7 @@ const T = {
     slotTakenErr: "ती वेळ नुकतीच दुसऱ्या कोणी घेतली — कृपया दुसरी निवडा.",
     genericErr: "काहीतरी चूक झाली. कृपया पुन्हा प्रयत्न करा.",
     slotHeld: (time) => `ठीक आहे — मी ${time} तुमच्यासाठी पुढील 5 मिनिटांसाठी राखून ठेवली आहे, तोपर्यंत बुकिंग पूर्ण करा.`,
+    onlineNotePrompt: "व्हिडिओ/फोन सल्ल्यापूर्वी डॉक्टरांना काही विशेष सांगायचे आहे का? (ऐच्छिक — तुम्ही थेट पाठवा देखील दाबू शकता)",
     medicinePrompt: "तुम्हाला कोणते औषध हवे आहे?",
     loadingMedicines: "औषधांची यादी लोड होत आहे…",
     outOfStock: "स्टॉकमध्ये नाही",
@@ -253,10 +283,17 @@ const T = {
     medicineOrderTitle: "ऑर्डर नोंदवली",
     medicineOrderMsg: "धन्यवाद! तुमची ऑर्डर क्लिनिकला पाठवली आहे — तयार झाल्यावर ते पुष्टी करतील.",
     noMedicines: "सध्या कोणतीही औषधे सूचीबद्ध नाहीत. कृपया त्याऐवजी 'प्रश्न' पर्याय वापरा.",
+    invalidPhone: "कृपया योग्य 10 अंकी मोबाइल नंबर टाका (6-9 ने सुरू होणारा).",
+    mybookingsAskPhone: "ठीक आहे — कृपया तुम्ही बुकिंगसाठी वापरलेला फोन नंबर सांगा.",
+    noBookingsFound: "या नंबरसाठी कोणतीही बुकिंग, ऑर्डर किंवा विनंती सापडली नाही.",
+    sectionAppointments: "अपॉइंटमेंट",
+    sectionMedicineOrders: "औषध ऑर्डर",
+    sectionRequests: "प्रश्न",
+    statusLabels: { booked:'बुक झाली', completed:'पूर्ण', cancelled:'रद्द', pending:'प्रलंबित', accepted:'स्वीकृत', rejected:'नाकारले', open:'उघडे', closed:'बंद' },
   }
 };
 
-let state = { lang:null, service:null, serviceTitle:null, day:null, date:null, time:null, name:null, phone:null, holdToken:null };
+let state = { lang:null, service:null, serviceTitle:null, day:null, date:null, time:null, name:null, phone:null, holdToken:null, mode:null };
 
 function scrollDown(){ requestAnimationFrame(()=>{ thread.scrollTop = thread.scrollHeight; }); }
 
@@ -319,11 +356,12 @@ function setComposerIdle(){
     Tap an option above to reply
   </div>`;
 }
-function setComposerInput({ placeholder, buttonLabel, multiline=false, onSubmit }){
+function setComposerInput({ placeholder, buttonLabel, multiline=false, type='text', maxlength=null, onSubmit }){
+  const extraAttrs = maxlength ? `maxlength="${maxlength}"` : '';
   composer.innerHTML = `<form class="composer-form" id="cform">
     ${multiline
       ? `<textarea id="cinput" rows="1" placeholder="${placeholder}"></textarea>`
-      : `<input id="cinput" type="text" placeholder="${placeholder}" autocomplete="off" />`}
+      : `<input id="cinput" type="${type}" inputmode="${type === 'tel' ? 'numeric' : 'text'}" ${extraAttrs} placeholder="${placeholder}" autocomplete="off" />`}
     <button type="submit">${buttonLabel}</button>
   </form>`;
   const form = document.getElementById('cform');
@@ -364,7 +402,7 @@ async function api(path, options={}){
 async function startFlow(){
   thread.innerHTML = '';
   setComposerIdle();
-  state = { lang:null, service:null, serviceTitle:null, day:null, date:null, time:null, name:null, phone:null, holdToken:null };
+  state = { lang:null, service:null, serviceTitle:null, day:null, date:null, time:null, name:null, phone:null, holdToken:null, mode:null };
   await addBotBubble(T.en.greet, 300);
   addChips(
     LANGS.map(l => ({ cls:'lang', html:`<span class="native">${l.native}</span><span class="lbl-sub">${l.label}</span>`, lang:l })),
@@ -388,7 +426,8 @@ async function handleMenu(item, t){
   state.serviceTitle = item.title;
   addUserBubble(`${item.icon} ${item.title}`);
 
-  if (item.key === 'offline'){
+  if (item.key === 'offline' || item.key === 'online'){
+    state.mode = item.key; // 'offline' | 'online'
     await addBotBubble(t.dayPrompt);
     try{
       const { days } = await api('/api/public/days');
@@ -416,6 +455,8 @@ async function handleMenu(item, t){
       }));
       addChips(chips, (chosen)=> handleMedicinePick(chosen.medicine, t));
     } catch(e){ addErrorBubble(t.genericErr); }
+  } else if (item.key === 'mybookings'){
+    handleMyBookings(t);
   } else {
     await addBotBubble(t.askName);
     setComposerInput({
@@ -460,10 +501,11 @@ async function askNameForMedicine(t){
 async function askPhoneForMedicine(t){
   await addBotBubble(t.askPhone);
   setComposerInput({
-    placeholder: t.phonePh, buttonLabel: t.send,
+    placeholder: t.phonePh, buttonLabel: t.send, type:'tel', maxlength:10,
     onSubmit: async (val)=>{
       if(!val) return;
-      state.phone = val; addUserBubble(val); setComposerIdle();
+      if (!isValidPhone(val)){ addErrorBubble(t.invalidPhone); return; }
+      state.phone = normalizePhone(val); addUserBubble(state.phone); setComposerIdle();
       try{
         const { order } = await api('/api/public/medicine-orders', {
           method:'POST',
@@ -481,7 +523,7 @@ async function askPhoneForMedicine(t){
           { k: t.labels.ref, v: '#M' + order.id },
         ]});
         addRestartLink(t);
-      } catch(e){ addErrorBubble(t.genericErr); }
+      } catch(e){ addErrorBubble(e.code === 'INVALID_PHONE' ? t.invalidPhone : t.genericErr); }
     }
   });
 }
@@ -489,8 +531,12 @@ async function askPhoneForMedicine(t){
 async function askPhoneForRequest(t, item){
   await addBotBubble(t.askPhone);
   setComposerInput({
-    placeholder: t.phonePh, buttonLabel: t.send,
-    onSubmit: (val)=>{ if(!val) return; state.phone = val; addUserBubble(val); setComposerIdle(); askMessageForRequest(t, item); }
+    placeholder: t.phonePh, buttonLabel: t.send, type:'tel', maxlength:10,
+    onSubmit: (val)=>{
+      if(!val) return;
+      if (!isValidPhone(val)){ addErrorBubble(t.invalidPhone); return; }
+      state.phone = normalizePhone(val); addUserBubble(state.phone); setComposerIdle(); askMessageForRequest(t, item);
+    }
   });
 }
 
@@ -560,35 +606,53 @@ async function handleTime(c, t, chosen){
 async function askPhoneForAppointment(t){
   await addBotBubble(t.askPhone);
   setComposerInput({
-    placeholder: t.phonePh, buttonLabel: t.send,
-    onSubmit: async (val)=>{
+    placeholder: t.phonePh, buttonLabel: t.send, type:'tel', maxlength:10,
+    onSubmit: (val)=>{
       if(!val) return;
-      state.phone = val; addUserBubble(val); setComposerIdle();
-      try{
-        const { appointment } = await api('/api/public/appointments', {
-          method:'POST',
-          body: JSON.stringify({
-            patientName: state.name, patientPhone: state.phone, language: state.lang,
-            date: state.date, timeSlot: state.time, holdToken: state.holdToken
-          })
-        });
-        state.holdToken = null; // slot is booked now, nothing left to release
-        await addBotBubble(t.confirmMsg, 500);
-        addSummaryCard(t, { title: t.confirmTitle, rows: [
-          { k: t.labels.language, v: LANGS.find(l=>l.code===state.lang).native },
-          { k: t.labels.service, v: state.serviceTitle },
-          { k: t.labels.day, v: `${t.days[state.day]}, ${state.date}` },
-          { k: t.labels.time, v: state.time },
-          { k: t.labels.name, v: state.name },
-          { k: t.labels.phone, v: state.phone },
-          { k: t.labels.ref, v: '#A' + appointment.id },
-        ]});
-        addRestartLink(t);
-      } catch(e){
-        addErrorBubble(e.code === 'SLOT_UNAVAILABLE' ? t.slotTakenErr : t.genericErr);
+      if (!isValidPhone(val)){ addErrorBubble(t.invalidPhone); return; }
+      state.phone = normalizePhone(val); addUserBubble(state.phone); setComposerIdle();
+      if (state.mode === 'online'){
+        askNoteForOnline(t);
+      } else {
+        submitAppointment(t, '');
       }
     }
   });
+}
+
+async function askNoteForOnline(t){
+  await addBotBubble(t.onlineNotePrompt);
+  setComposerInput({
+    placeholder: t.msgPh, buttonLabel: t.send, multiline:true,
+    onSubmit: (val)=>{ addUserBubble(val || '—'); setComposerIdle(); submitAppointment(t, val || ''); }
+  });
+}
+
+async function submitAppointment(t, notes){
+  try{
+    const { appointment } = await api('/api/public/appointments', {
+      method:'POST',
+      body: JSON.stringify({
+        patientName: state.name, patientPhone: state.phone, language: state.lang,
+        date: state.date, timeSlot: state.time, holdToken: state.holdToken,
+        mode: state.mode, notes
+      })
+    });
+    state.holdToken = null; // slot is booked now, nothing left to release
+    await addBotBubble(t.confirmMsg, 500);
+    addSummaryCard(t, { title: t.confirmTitle, rows: [
+      { k: t.labels.language, v: LANGS.find(l=>l.code===state.lang).native },
+      { k: t.labels.service, v: state.serviceTitle },
+      { k: t.labels.day, v: `${t.days[state.day]}, ${state.date}` },
+      { k: t.labels.time, v: state.time },
+      { k: t.labels.name, v: state.name },
+      { k: t.labels.phone, v: state.phone },
+      { k: t.labels.ref, v: '#A' + appointment.id },
+    ]});
+    addRestartLink(t);
+  } catch(e){
+    addErrorBubble(e.code === 'SLOT_UNAVAILABLE' ? t.slotTakenErr : (e.code === 'INVALID_PHONE' ? t.invalidPhone : t.genericErr));
+  }
 }
 
 function releaseHoldIfAny(){
@@ -599,6 +663,74 @@ function releaseHoldIfAny(){
       body: JSON.stringify({ date: state.date, timeSlot: state.time, holdToken: state.holdToken })
     }).catch(()=>{});
   }
+}
+
+async function handleMyBookings(t){
+  await addBotBubble(t.mybookingsAskPhone);
+  setComposerInput({
+    placeholder: t.phonePh, buttonLabel: t.send, type:'tel', maxlength:10,
+    onSubmit: async (val)=>{
+      if (!val) return;
+      if (!isValidPhone(val)){ addErrorBubble(t.invalidPhone); return; }
+      const cleaned = normalizePhone(val);
+      addUserBubble(cleaned);
+      setComposerIdle();
+      try{
+        const data = await api('/api/public/my-bookings?phone=' + encodeURIComponent(cleaned));
+        renderMyBookings(t, data);
+      } catch(e){
+        addErrorBubble(e.code === 'INVALID_PHONE' ? t.invalidPhone : t.genericErr);
+      }
+    }
+  });
+}
+
+function statusBadge(t, status){
+  const colors = {
+    booked:   { bg:'#FFF3E1', fg:'#B9770E' },
+    pending:  { bg:'#FFF3E1', fg:'#B9770E' },
+    open:     { bg:'#FFF3E1', fg:'#B9770E' },
+    completed:{ bg:'#E3F5EC', fg:'#2C8C63' },
+    accepted: { bg:'#E3F5EC', fg:'#2C8C63' },
+    closed:   { bg:'#E3F5EC', fg:'#2C8C63' },
+    cancelled:{ bg:'#FBEAE7', fg:'#D2483A' },
+    rejected: { bg:'#FBEAE7', fg:'#D2483A' },
+  };
+  const c = colors[status] || { bg:'#F1F6F4', fg:'#6B8079' };
+  const label = (t.statusLabels && t.statusLabels[status]) || status;
+  return `<span style="display:inline-block;padding:2px 10px;border-radius:12px;font-size:11px;font-weight:700;background:${c.bg};color:${c.fg};">${label}</span>`;
+}
+
+function renderMyBookings(t, data){
+  const total = data.appointments.length + data.medicineOrders.length + data.requests.length;
+  if (!total){
+    addBotBubble(t.noBookingsFound, 200);
+    addRestartLink(t);
+    return;
+  }
+  data.appointments.forEach(a=>{
+    addSummaryCard(t, { title: `🏥 ${t.sectionAppointments} #A${a.id}`, rows: [
+      { k: t.labels.name, v: escapeHtml(a.patient_name) },
+      { k: t.labels.day, v: `${t.days[a.day_name] || a.day_name}, ${a.appointment_date}` },
+      { k: t.labels.time, v: a.time_slot },
+      { k: t.labels.status, v: statusBadge(t, a.status) },
+    ]});
+  });
+  data.medicineOrders.forEach(o=>{
+    addSummaryCard(t, { title: `💊 ${t.sectionMedicineOrders} #M${o.id}`, rows: [
+      { k: t.labels.name, v: escapeHtml(o.patient_name) },
+      { k: t.labels.medicine, v: o.medicine_name },
+      { k: t.labels.qty, v: String(o.quantity) },
+      { k: t.labels.status, v: statusBadge(t, o.status) },
+    ]});
+  });
+  data.requests.forEach(r=>{
+    addSummaryCard(t, { title: `❓ ${t.sectionRequests} #R${r.id}`, rows: [
+      { k: t.labels.name, v: escapeHtml(r.patient_name) },
+      { k: t.labels.status, v: statusBadge(t, r.status) },
+    ]});
+  });
+  addRestartLink(t);
 }
 
 function addRestartLink(t){

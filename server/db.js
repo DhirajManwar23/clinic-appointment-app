@@ -41,6 +41,7 @@ db.exec(`
     day_name TEXT NOT NULL,
     appointment_date TEXT NOT NULL,   -- YYYY-MM-DD
     time_slot TEXT NOT NULL,          -- e.g. '2:45 PM'
+    mode TEXT NOT NULL DEFAULT 'offline', -- offline | online
     status TEXT NOT NULL DEFAULT 'booked', -- booked | completed | cancelled
     notes TEXT DEFAULT '',
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
@@ -120,6 +121,13 @@ db.exec(`
 
   CREATE INDEX IF NOT EXISTS idx_slot_holds_lookup ON slot_holds(date, time_slot);
 `);
+
+// ---- Lightweight migration for DBs created before the 'mode' column existed ----
+const appointmentColumns = db.prepare("PRAGMA table_info(appointments)").all().map((c) => c.name);
+if (!appointmentColumns.includes('mode')) {
+  db.exec("ALTER TABLE appointments ADD COLUMN mode TEXT NOT NULL DEFAULT 'offline'");
+  console.log('Migrated appointments table: added "mode" column (offline/online).');
+}
 
 // Seed one doctor row if none exists
 let doctor = db.prepare('SELECT * FROM doctors LIMIT 1').get();

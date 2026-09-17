@@ -2,9 +2,9 @@ const express = require('express');
 const crypto = require('node:crypto');
 const db = require('../db');
 const { generateNextDays, parseDate, TIME_SLOTS } = require('../utils/slots');
+const { normalizePhone, isValidPhone } = require('../utils/validate');
 
 const router = express.Router();
-const PHONE_RE = /^[0-9+\-\s]{7,15}$/;
 const HOLD_MINUTES = 5;
 
 // GET /api/public/days -> upcoming bookable days (closed days removed)
@@ -99,14 +99,16 @@ router.delete('/slots/hold', (req, res) => {
 
 // POST /api/public/appointments -> book an offline appointment
 router.post('/appointments', (req, res) => {
-  const { patientName, patientPhone, language, date, timeSlot, holdToken } = req.body || {};
+  const { patientName, patientPhone, language, date, timeSlot, holdToken, mode, notes } = req.body || {};
 
   if (!patientName || !patientPhone || !date || !timeSlot) {
     return res.status(400).json({ error: 'Name, phone, date and time slot are all required.' });
   }
-  if (!PHONE_RE.test(patientPhone)) {
-    return res.status(400).json({ error: 'Please enter a valid phone number.' });
+  if (!isValidPhone(patientPhone)) {
+    return res.status(400).json({ error: 'Please enter a valid 10-digit mobile number.', code: 'INVALID_PHONE' });
   }
+  const cleanPhone = normalizePhone(patientPhone);
+  const appointmentMode = mode === 'online' ? 'online' : 'offline';
 
   const parsed = parseDate(date);
   if (!parsed) return res.status(400).json({ error: 'That date is not valid.' });
@@ -140,10 +142,10 @@ router.post('/appointments', (req, res) => {
 
   const info = db
     .prepare(
-      `INSERT INTO appointments (patient_name, patient_phone, language, day_name, appointment_date, time_slot, status)
-       VALUES (?, ?, ?, ?, ?, ?, 'booked')`
+      `INSERT INTO appointments (patient_name, patient_phone, language, day_name, appointment_date, time_slot, mode, status, notes)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'booked', ?)`
     )
-    .run(patientName.trim(), patientPhone.trim(), language || 'en', parsed.dayName, date, timeSlot);
+    .run(patientName.trim(), cleanPhone, language || 'en', parsed.dayName, date, timeSlot, appointmentMode, (notes || '').trim());
 
   // The slot is booked now, so any hold on it (ours or a stray one) is no longer needed.
   db.prepare('DELETE FROM slot_holds WHERE date = ? AND time_slot = ?').run(date, timeSlot);
@@ -152,18 +154,18 @@ router.post('/appointments', (req, res) => {
   res.status(201).json({ appointment });
 });
 
-// POST /api/public/requests -> online appointment / query requests
+// POST /api/public/requests -> general query requests
 router.post('/requests', (req, res) => {
   const { patientName, patientPhone, language, type, message } = req.body || {};
 
   if (!patientName || !patientPhone || !type) {
     return res.status(400).json({ error: 'Name, phone and request type are required.' });
   }
-  if (!['online', 'query'].includes(type)) {
+  if (!['query'].includes(type)) {
     return res.status(400).json({ error: 'Unknown request type.' });
   }
-  if (!PHONE_RE.test(patientPhone)) {
-    return res.status(400).json({ error: 'Please enter a valid phone number.' });
+  if (!isValidPhone(patientPhone)) {
+    return res.status(400).json({ error: 'Please enter a valid 10-digit mobile number.', code: 'INVALID_PHONE' });
   }
 
   const info = db
@@ -171,7 +173,7 @@ router.post('/requests', (req, res) => {
       `INSERT INTO requests (patient_name, patient_phone, language, type, message, status)
        VALUES (?, ?, ?, ?, ?, 'open')`
     )
-    .run(patientName.trim(), patientPhone.trim(), language || 'en', type, (message || '').trim());
+    .run(patientName.trim(), normalizePhone(patientPhone), language || 'en', type, (message || '').trim());
 
   const request = db.prepare('SELECT * FROM requests WHERE id = ?').get(info.lastInsertRowid);
   res.status(201).json({ request });
@@ -192,8 +194,8 @@ router.post('/medicine-orders', (req, res) => {
   if (!patientName || !patientPhone || !medicineId || !quantity) {
     return res.status(400).json({ error: 'Name, phone, medicine and quantity are required.' });
   }
-  if (!PHONE_RE.test(patientPhone)) {
-    return res.status(400).json({ error: 'Please enter a valid phone number.' });
+  if (!isValidPhone(patientPhone)) {
+    return res.status(400).json({ error: 'Please enter a valid 10-digit mobile number.', code: 'INVALID_PHONE' });
   }
   const qtyNum = Number(quantity);
   if (!Number.isInteger(qtyNum) || qtyNum < 1) {
@@ -208,10 +210,35 @@ router.post('/medicine-orders', (req, res) => {
       `INSERT INTO medicine_orders (patient_name, patient_phone, language, medicine_id, medicine_name, quantity, status)
        VALUES (?, ?, ?, ?, ?, ?, 'pending')`
     )
-    .run(patientName.trim(), patientPhone.trim(), language || 'en', medicine.id, medicine.name, qtyNum);
+    .run(patientName.trim(), normalizePhone(patientPhone), language || 'en', medicine.id, medicine.name, qtyNum);
 
   const order = db.prepare('SELECT * FROM medicine_orders WHERE id = ?').get(info.lastInsertRowid);
   res.status(201).json({ order });
+});
+
+// ---------- My Bookings (phone-number lookup, no login needed) ----------
+
+// GET /api/public/my-bookings?phone=9876543210 -> currently OPEN items tied to that phone
+// number (a completed/cancelled appointment, an accepted/rejected order, or a closed
+// query won't show here — this is "what's still active for me", not a full history).
+router.get('/my-bookings', (req, res) => {
+  const { phone } = req.query;
+  if (!isValidPhone(phone)) {
+    return res.status(400).json({ error: 'Please enter a valid 10-digit mobile number.', code: 'INVALID_PHONE' });
+  }
+  const cleanPhone = normalizePhone(phone);
+
+  const appointments = db
+    .prepare(`SELECT * FROM appointments WHERE patient_phone = ? AND status = 'booked' ORDER BY appointment_date ASC, time_slot ASC LIMIT 20`)
+    .all(cleanPhone);
+  const medicineOrders = db
+    .prepare(`SELECT * FROM medicine_orders WHERE patient_phone = ? AND status = 'pending' ORDER BY created_at DESC LIMIT 20`)
+    .all(cleanPhone);
+  const requests = db
+    .prepare(`SELECT * FROM requests WHERE patient_phone = ? AND status = 'open' ORDER BY created_at DESC LIMIT 20`)
+    .all(cleanPhone);
+
+  res.json({ appointments, medicineOrders, requests });
 });
 
 module.exports = router;

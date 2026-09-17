@@ -4,19 +4,36 @@ A full working web app with two sides:
 
 1. **Patient booking chat** (`/`) — multilingual (Marathi / Hindi / English), lets a
    patient:
-   - Book an **Offline Appointment**: pick any day of the week → an open time slot
-     → give name & phone. The moment a patient taps a time slot, it's **held for
-     them for 5 minutes** — no one else can grab it while they finish entering
-     their details, closing the gap between "I picked a time" and "I confirmed it."
+   - Book an **Offline Appointment** or an **Online Appointment**: both go through
+     the same flow — pick a day → an open time slot → give name & phone (an
+     online booking also asks an optional short note for the doctor beforehand).
+     Online and offline share the same time slots, since it's the same doctor's
+     time either way — booking one blocks the other on that slot.
+   - The moment a patient taps a time slot, it's **held for them for 5 minutes**
+     — no one else can grab it while they finish entering their details, closing
+     the gap between "I picked a time" and "I confirmed it."
    - Browse the **Medicine** list the doctor has stocked and place an order (pick
      medicine → quantity → name & phone).
-   - Leave a request for **Online Appointment** or a general **Query**.
+   - Leave a general **Query** as a free-text request.
+   - Check **My Bookings**: enter the phone number used to book, and see every
+     appointment, medicine order, and query tied to that number with its current
+     status — no login needed, just the phone number.
+   - Every phone number entered (booking, ordering, querying, or looking up) is
+     validated as a real 10-digit Indian mobile number (starts 6-9); `+91`,
+     spaces, and dashes are accepted and cleaned up automatically.
 2. **Doctor / Admin dashboard** (`/admin`) — password-protected, with four tabs:
-   - **Appointments** — cancel or mark complete; a freed slot becomes bookable again.
-   - **Requests** — close online-appointment/query requests once handled.
+   - **Appointments** — cancel, mark complete, or **edit/reschedule** (change
+     name, phone, date, or time slot — checked against other bookings so you
+     can't accidentally double-book). Filter by status, mode, a date range
+     (day/week/month), or search by patient name/phone.
+   - **Requests** — close general query requests once handled.
    - **Schedule** — close an entire day (holiday/leave) or close individual time
      slots on any date; both are instantly hidden from the patient app. Reopen
      either any time.
+   - Cancelling an appointment, closing a request, closing a day/slot, or
+     accepting/rejecting a medicine order prompts for an optional comment —
+     saved as a note and shown with a 📝 icon (hover to read it) next to that
+     row afterward.
    - **Medicines** — maintain inventory (add medicines with quantity/unit/price,
      restock, delete) and review incoming **orders**. New orders show a red
      notification count on the tab; accepting an order deducts stock automatically
@@ -128,16 +145,17 @@ clinic-appointment-app/
 - `GET  /api/public/slots?date=YYYY-MM-DD&excludeHoldToken=` — slots for a day, flagged `booked`/`held` (closed slots excluded entirely; pass your own `excludeHoldToken` so your own hold doesn't show as unavailable to you)
 - `POST /api/public/slots/hold` — `{ date, timeSlot }` → `{ holdToken, expiresInSeconds }`, reserves the slot for 5 minutes
 - `DELETE /api/public/slots/hold` — body `{ date, timeSlot, holdToken }`, releases a hold early
-- `POST /api/public/appointments` — `{ patientName, patientPhone, language, date, timeSlot, holdToken? }`
-- `POST /api/public/requests` — `{ patientName, patientPhone, language, type, message }` (`type`: `online` | `query`)
+- `POST /api/public/appointments` — `{ patientName, patientPhone, language, date, timeSlot, holdToken?, mode?: "offline"|"online", notes? }`
+- `POST /api/public/requests` — `{ patientName, patientPhone, language, type, message }` (`type`: `query`)
 - `GET  /api/public/medicines` — inventory list (name, qty, unit, price)
 - `POST /api/public/medicine-orders` — `{ patientName, patientPhone, language, medicineId, quantity }`
+- `GET  /api/public/my-bookings?phone=` — appointments, medicine orders, and requests tied to a phone number
 
 **Auth**
 - `POST /api/auth/login` — `{ username, password }` → `{ token, doctor }`
 
 **Admin (send `Authorization: Bearer <token>`)**
-- `GET   /api/admin/appointments?status=&date=`
+- `GET   /api/admin/appointments?status=&date=&mode=`
 - `PATCH /api/admin/appointments/:id` — `{ status: "completed" | "cancelled" | "booked", notes? }`
 - `GET   /api/admin/requests?status=&type=`
 - `PATCH /api/admin/requests/:id` — `{ status: "open" | "closed", notes? }`

@@ -2,30 +2,45 @@ const express = require('express');
 const db = require('../db');
 const requireAuth = require('../middleware/auth');
 const { generateNextDays, parseDate, TIME_SLOTS } = require('../utils/slots');
+const { normalizePhone, isValidPhone } = require('../utils/validate');
 
 const router = express.Router();
 router.use(requireAuth);
 
 // ---------- Appointments ----------
 
-// GET /api/admin/appointments?status=booked&date=YYYY-MM-DD
+// GET /api/admin/appointments?status=&date=&dateFrom=&dateTo=&mode=&search=
+// dateFrom/dateTo (inclusive) let the dashboard filter by day, week, or month;
+// search matches patient name or phone (partial match, case-insensitive).
 router.get('/appointments', (req, res) => {
-  const { status, date } = req.query;
+  const { status, date, dateFrom, dateTo, mode, search } = req.query;
   let sql = 'SELECT * FROM appointments WHERE 1=1';
   const params = [];
 
   if (status) { sql += ' AND status = ?'; params.push(status); }
   if (date) { sql += ' AND appointment_date = ?'; params.push(date); }
+  if (dateFrom) { sql += ' AND appointment_date >= ?'; params.push(dateFrom); }
+  if (dateTo) { sql += ' AND appointment_date <= ?'; params.push(dateTo); }
+  if (mode) { sql += ' AND mode = ?'; params.push(mode); }
+  if (search && search.trim()) {
+    sql += ' AND (patient_name LIKE ? OR patient_phone LIKE ?)';
+    const like = `%${search.trim()}%`;
+    params.push(like, like);
+  }
 
   sql += ' ORDER BY appointment_date ASC, time_slot ASC';
   const appointments = db.prepare(sql).all(...params);
   res.json({ appointments });
 });
 
-// PATCH /api/admin/appointments/:id  { status: 'completed' | 'cancelled' | 'booked', notes }
+// PATCH /api/admin/appointments/:id
+// Accepts any of: status, notes, patientName, patientPhone, date, timeSlot (reschedule).
+// Changing date/timeSlot is checked against other patients' bookings (but not
+// against doctor-closed days/slots — the doctor can still hand-place a booking
+// there if needed).
 router.patch('/appointments/:id', (req, res) => {
   const { id } = req.params;
-  const { status, notes } = req.body || {};
+  const { status, notes, patientName, patientPhone, date, timeSlot } = req.body || {};
 
   const existing = db.prepare('SELECT * FROM appointments WHERE id = ?').get(id);
   if (!existing) return res.status(404).json({ error: 'Appointment not found.' });
@@ -34,8 +49,47 @@ router.patch('/appointments/:id', (req, res) => {
     return res.status(400).json({ error: 'Invalid status.' });
   }
 
-  db.prepare('UPDATE appointments SET status = COALESCE(?, status), notes = COALESCE(?, notes) WHERE id = ?')
-    .run(status || null, notes ?? null, id);
+  let newDate = existing.appointment_date;
+  let newTimeSlot = existing.time_slot;
+  let newDayName = existing.day_name;
+  if (date !== undefined || timeSlot !== undefined) {
+    const targetDate = date !== undefined ? date : existing.appointment_date;
+    const targetSlot = timeSlot !== undefined ? timeSlot : existing.time_slot;
+    const parsed = parseDate(targetDate);
+    if (!parsed) return res.status(400).json({ error: 'That date is not valid.' });
+    if (!TIME_SLOTS.includes(targetSlot)) return res.status(400).json({ error: 'That time slot is not valid.' });
+
+    if (targetDate !== existing.appointment_date || targetSlot !== existing.time_slot) {
+      const conflict = db
+        .prepare(`SELECT id FROM appointments WHERE appointment_date = ? AND time_slot = ? AND status = 'booked' AND id != ?`)
+        .get(targetDate, targetSlot, id);
+      if (conflict) {
+        return res.status(409).json({ error: 'That slot is already booked by another patient.' });
+      }
+      // Clear any patient-side hold sitting on the new slot so it doesn't collide later.
+      db.prepare('DELETE FROM slot_holds WHERE date = ? AND time_slot = ?').run(targetDate, targetSlot);
+    }
+    newDate = targetDate;
+    newTimeSlot = targetSlot;
+    newDayName = parsed.dayName;
+  }
+
+  let newPhone = existing.patient_phone;
+  if (patientPhone !== undefined) {
+    if (!isValidPhone(patientPhone)) {
+      return res.status(400).json({ error: 'Please enter a valid 10-digit mobile number.', code: 'INVALID_PHONE' });
+    }
+    newPhone = normalizePhone(patientPhone);
+  }
+  const newName = patientName !== undefined && patientName.trim() ? patientName.trim() : existing.patient_name;
+
+  db.prepare(
+    `UPDATE appointments
+     SET status = COALESCE(?, status), notes = COALESCE(?, notes),
+         patient_name = ?, patient_phone = ?, appointment_date = ?, time_slot = ?, day_name = ?
+     WHERE id = ?`
+  ).run(status || null, notes ?? null, newName, newPhone, newDate, newTimeSlot, newDayName, id);
+
 
   const updated = db.prepare('SELECT * FROM appointments WHERE id = ?').get(id);
   res.json({ appointment: updated });
@@ -44,12 +98,17 @@ router.patch('/appointments/:id', (req, res) => {
 // ---------- Requests (online appointment / query) ----------
 
 router.get('/requests', (req, res) => {
-  const { status, type } = req.query;
+  const { status, type, search } = req.query;
   let sql = 'SELECT * FROM requests WHERE 1=1';
   const params = [];
 
   if (status) { sql += ' AND status = ?'; params.push(status); }
   if (type) { sql += ' AND type = ?'; params.push(type); }
+  if (search && search.trim()) {
+    sql += ' AND (patient_name LIKE ? OR patient_phone LIKE ?)';
+    const like = `%${search.trim()}%`;
+    params.push(like, like);
+  }
 
   sql += ' ORDER BY created_at DESC';
   const requests = db.prepare(sql).all(...params);
@@ -122,7 +181,8 @@ router.get('/schedule/slots', (req, res) => {
   const parsed = parseDate(date);
   if (!parsed) return res.status(400).json({ error: 'A valid date is required.' });
 
-  const closedSlots = db.prepare('SELECT time_slot FROM closed_slots WHERE date = ?').all(date).map((r) => r.time_slot);
+  const closedRows = db.prepare('SELECT time_slot, reason FROM closed_slots WHERE date = ?').all(date);
+  const closedMap = new Map(closedRows.map((r) => [r.time_slot, r.reason]));
   const booked = db
     .prepare(`SELECT time_slot FROM appointments WHERE appointment_date = ? AND status = 'booked'`)
     .all(date).map((r) => r.time_slot);
@@ -132,7 +192,8 @@ router.get('/schedule/slots', (req, res) => {
 
   const slots = TIME_SLOTS.map((t) => ({
     time: t,
-    closed: closedSlots.includes(t),
+    closed: closedMap.has(t),
+    reason: closedMap.get(t) || '',
     booked: booked.includes(t),
     held: held.includes(t),
   }));
@@ -224,10 +285,15 @@ router.delete('/medicines/:id', (req, res) => {
 // ---------- Medicine orders ----------
 
 router.get('/medicine-orders', (req, res) => {
-  const { status } = req.query;
+  const { status, search } = req.query;
   let sql = 'SELECT * FROM medicine_orders WHERE 1=1';
   const params = [];
   if (status) { sql += ' AND status = ?'; params.push(status); }
+  if (search && search.trim()) {
+    sql += ' AND (patient_name LIKE ? OR patient_phone LIKE ?)';
+    const like = `%${search.trim()}%`;
+    params.push(like, like);
+  }
   sql += ' ORDER BY created_at DESC';
   const orders = db.prepare(sql).all(...params);
   res.json({ orders });
