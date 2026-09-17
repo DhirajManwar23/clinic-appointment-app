@@ -88,20 +88,97 @@ OPD Sahayak Clinic server running
 The database file is created automatically at `data/clinic.db` the first time you
 run the app — no separate database setup needed.
 
-## 3. Deploying it for real use
+## 3. Deploying to Vercel (with Turso as the database)
 
-To make this reachable outside your own computer, deploy it to any Node-friendly
-host (Render, Railway, a VPS, etc.):
+Vercel runs this app as **serverless functions** — every request can hit a
+different, short-lived instance with no shared local disk. That's why the app
+now uses [Turso](https://turso.tech) (a hosted, serverless-friendly SQLite)
+instead of a local `.db` file in production. Locally, nothing changes — if you
+don't set up Turso, the app just uses a local SQLite file exactly as before.
+
+### 3a. Create a free Turso database
+
+1. Install the Turso CLI and sign up (free tier is plenty for one clinic):
+   ```bash
+   curl -sSfL https://get.tur.so/install.sh | bash
+   turso auth signup
+   ```
+   (Windows: use the [manual install steps](https://docs.turso.tech/cli/installation) or WSL.)
+2. Create a database and grab its connection details:
+   ```bash
+   turso db create opd-sahayak
+   turso db show opd-sahayak --url
+   turso db tokens create opd-sahayak
+   ```
+   The first command's output is your `TURSO_DATABASE_URL` (starts with
+   `libsql://`); the second is your `TURSO_AUTH_TOKEN`.
+
+### 3b. Deploy to Vercel
+
+1. Push this project to a GitHub/GitLab/Bitbucket repo.
+2. Go to [vercel.com](https://vercel.com) → **Add New Project** → import that repo.
+   Vercel auto-detects the `vercel.json` in this project — no build settings to change.
+3. Before deploying, add these **Environment Variables** in the Vercel project
+   settings (Settings → Environment Variables), for **Production** (and
+   Preview, if you want preview deployments to work too):
+
+   | Name | Value |
+   |---|---|
+   | `TURSO_DATABASE_URL` | from `turso db show ... --url` |
+   | `TURSO_AUTH_TOKEN` | from `turso db tokens create ...` |
+   | `JWT_SECRET` | a long random string |
+   | `ADMIN_USERNAME` | your choice |
+   | `ADMIN_PASSWORD` | your choice |
+   | `DOCTOR_NAME` | e.g. `Dr. Sharma` |
+   | `CLINIC_NAME` | e.g. `OPD Sahayak Clinic` |
+
+4. Deploy. Vercel gives you a URL like `https://your-project.vercel.app`:
+   - Patient booking: `https://your-project.vercel.app/`
+   - Admin dashboard: `https://your-project.vercel.app/admin`
+
+Or from the CLI instead of the dashboard:
+```bash
+npm install -g vercel
+vercel login
+vercel link
+vercel env add TURSO_DATABASE_URL production
+vercel env add TURSO_AUTH_TOKEN production
+vercel env add JWT_SECRET production
+vercel env add ADMIN_USERNAME production
+vercel env add ADMIN_PASSWORD production
+vercel env add DOCTOR_NAME production
+vercel env add CLINIC_NAME production
+vercel --prod
+```
+
+### 3c. How the pieces fit together
+
+- `vercel.json` routes `/` and `/admin` to the two HTML files in `public/`,
+  and every `/api/*` request to one serverless function (`api/index.js`).
+- `api/index.js` just re-exports the same Express app used locally
+  (`server/index.js`) — Vercel calls it directly per request instead of it
+  listening on a port.
+- The very first request after a cold start creates the database tables and
+  seeds the admin login automatically (same as running it locally) — nothing
+  to do manually on the Turso side.
+- Every route already goes through the doctor-closed-day/slot checks and the
+  5-minute slot hold, so double-booking protection works the same as before —
+  it's now backed by Turso instead of a local file, which is what makes it
+  safe across multiple serverless instances running at once.
+
+### 3d. Prefer not to deal with a separate database at all?
+
+If you'd rather not set up Turso, the simplest alternative is a host that
+runs a normal, persistent Node process with a local disk — Render, Railway,
+or a VPS. There, the app works exactly as it did before this change (falls
+back to the local SQLite file automatically when `TURSO_DATABASE_URL` isn't
+set):
 
 1. Push this folder to a git repo (or upload it).
-2. Set the same environment variables from `.env` in the host's dashboard.
+2. Set the same environment variables from `.env` in the host's dashboard
+   (skip the two `TURSO_*` ones).
 3. Start command: `npm start`.
 4. Point your domain at it, and consider adding HTTPS (most hosts do this for you).
-
-The SQLite file works fine for a single clinic. If you later need multiple
-locations or heavier traffic, the schema in `server/db.js` can be swapped for
-Postgres/MySQL with only the `db.js` file needing changes — the routes stay
-the same.
 
 ## 4. Changing the schedule
 
@@ -121,19 +198,23 @@ database and take effect immediately.
 
 ```
 clinic-appointment-app/
+  api/
+    index.js                # Vercel serverless entry point (re-exports server/index.js)
   server/
-    index.js              # Express app entry point
+    index.js              # Express app (exported for both `npm start` and Vercel)
     config.js              # reads .env
-    db.js                   # SQLite schema + seeds the admin login
-    utils/slots.js          # working days / time slots / date helpers
+    db.js                   # async Turso/libSQL layer — schema + seeds the admin login
+    utils/slots.js          # calendar/time-slot helpers
+    utils/validate.js       # phone number validation/normalization
     middleware/auth.js      # JWT auth guard for admin routes
     routes/
       auth.routes.js        # POST /api/auth/login
-      public.routes.js      # GET days/slots, POST appointments/requests
-      admin.routes.js       # protected: list/cancel/complete/close, stats
+      public.routes.js      # GET days/slots, POST appointments/requests/orders, my-bookings
+      admin.routes.js       # protected: appointments/requests/schedule/medicines, stats
   public/
     index.html               # patient chat booking app
     admin/index.html          # doctor/admin dashboard (login + tables)
+  vercel.json               # routes / and /admin to static files, /api/* to the function
   .env.example
   package.json
 ```
